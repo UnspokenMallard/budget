@@ -1,0 +1,18 @@
+#!/bin/zsh
+# Install (or reinstall) Budget's launchd agents from ~/.budget/launchd. `install-launchd status` shows them.
+set -eu
+DIR=$HOME/.budget/launchd
+AGENTS=$HOME/Library/LaunchAgents
+for plist in $DIR/*.plist; do
+  label=${plist:t:r}
+  if [[ ${1:-} == status ]]; then
+    launchctl print gui/$(id -u)/$label 2>/dev/null | grep -E '^\s+(state|pid|last exit code) =' | sed "s/^/$label /" || echo "$label not loaded"
+    continue
+  fi
+  launchctl bootout gui/$(id -u)/$label 2>/dev/null || true
+  # bootout returns before the old process exits; bootstrapping meanwhile fails with error 5
+  for i in {1..40}; do launchctl print gui/$(id -u)/$label >/dev/null 2>&1 || break; sleep 0.25; done
+  cp $plist $AGENTS/
+  launchctl bootstrap gui/$(id -u) $AGENTS/${plist:t}
+  echo "installed $label"
+done

@@ -1,0 +1,111 @@
+# Budget config (moved from ~/.jarvis/config.toml on 2026-10-17, comments kept; paths in them
+# that say usage/ or burn.py now mean ~/.budget/state/usage/ and budget/ledger.py).
+
+[limits]
+# Phase 6 step 2: a provider usage limit is a defer, not a failure. See
+# PHASE6-DESIGN.md section 2 and daemon/limits.py.
+#
+# Set enabled = false to go back to the old behavior, where a limit burned the
+# event's three retry attempts inside ten minutes and then alerted.
+enabled = true
+
+# How long to wait when the provider's message carries no reset time of its
+# own. **This is the one assumed number in the module.** No usage limit has
+# ever been observed on this machine, so the parseable formats are known from
+# reading the CLI binary rather than from a real hit -- every hit writes its
+# raw text to logs/limit-hits/ so the first real one corrects this.
+#
+# One hour and re-probe, rather than a five-hour sleep: guessing too short
+# costs one wasted call, guessing too long costs idle hours.
+default_wait_s = 3600
+
+# Spread the resume so every deferred event does not become claimable in the
+# same instant. Two cores; a stampede at the window boundary is the shape that
+# starves the daemon.
+jitter_s = 60
+
+# After this many consecutive defers (~6h at the default wait) the daemon stops
+# deferring, alerts at error, and lets the work fail normally. A limit that
+# never clears is a broken account, and a retry loop that never gives up is the
+# failure mode this whole daemon was built against.
+max_consecutive_defers = 6
+
+[burn]
+# Phase 6 step 3: notice a stuck handler, a spend spike, or a job failing the
+# same way forever. **Alert-only.** Nothing here stops anything -- the brake is
+# step 4 and stays unbuilt until this has been watched for a week.
+enabled = true
+
+# Rolling window for the spend/call rate checks, matching the burn-check job's
+# own schedule so each run measures the interval since the last one.
+window_s = 900
+
+# Daemon-attributable calls and spend, NOT host-wide usage. `usage.json`'s
+# figure includes interactive sessions, so a heavy afternoon at the keyboard
+# would be indistinguishable from a runaway daemon -- see burn.py's docstring.
+#
+# Sized off measured demand: the daemon makes ~2-3 provider calls on a busy
+# delegation day (0.7 escalations + a couple of criteria scorings). 12 per 15
+# min is far above anything normal operation produces, so tripping it means
+# something is looping rather than that the day was busy.
+max_calls_per_window = 12
+max_spend_usd_per_window = 1.50
+
+# The brake (step 4). Set brake_enabled = false to go back to alert-only.
+#
+# ONLY sustained burn engages it -- not stuck events, not repeated failures.
+# Burn is the one signal with a provable margin (measured demand 2.36 daemon
+# calls/day against a ceiling sustaining 1152, ~489x headroom) and the only one
+# that means "spending is running away". It stops NEW model-spending work
+# (queue-dispatch, brain escalations) and never kills anything
+# already running; scheduled ps-script jobs keep running so the machine's own
+# health checks keep reporting during an incident.
+brake_enabled = true
+
+# One over-limit window is a burst, not a runaway. Three consecutive 15 min
+# windows is 45 min of sustained overspend, and the counter resets the moment a
+# window comes back under the limit.
+brake_after_consecutive_windows = 3
+
+# Self-clearing, for the same reason the usage-limit flag is: a brake that needs
+# a human to lift it turns a spend incident into an outage. Delete
+# state/brake.json to resume sooner.
+brake_clears_after_s = 3600
+
+[llm_jobs]
+# The five scheduled `claude -p` jobs (scripts/jobcommon.py). Each run has its
+# own --max-budget-usd cap in its script; this is the ceiling for all of them
+# together, in list-price USD as `claude -p --output-format json` reports it. It
+# draws from the same weekly subscription limit as Anze's own Claude use.
+#
+# Trailing 7 days over the `job_calls` ledger (burn.py), so it frees up as older
+# runs age out rather than on a calendar day. A job that finds it reached does
+# not start, and its log and alert say why. That ledger is kept out of [burn]'s
+# 15-minute rate on purpose: one ordinary portfolio-advisor run costs more than
+# max_spend_usd_per_window, and these runs are capped here instead.
+#
+# Decided by Anze 2026-09-11 ($70; the jobs moved from Opus to Sonnet/Haiku the
+# same day, measured at ~$66/week on Opus before that). Lowered to $40 by Anze
+# 2026-09-13 after the first restricted nights: ~$2.10 a night measured, so
+# ~$12-20/week with some implementer tasks, and $40 is 2-3x that. burn.py keeps
+# its own default, so a missing key can never remove the ceiling.
+#
+# The per-run caps (each script's -BudgetUsd) were cut the same day to ~3x each
+# job's highest measured run: advisor $2.25, reflection $2.75, consultant $1.25,
+# introspect $1.25, usage-digest $0.50 -- down from $6/$6/$4/$6/$1, which were
+# sized from Opus-era token counts. A cap that binds stops that run and says so
+# in its log ("stopped at its per-run cap"); raise that one cap, not all of them.
+weekly_budget_usd = 40.0
+# Daily cap on the same ledger (added 2026-10-09, personal account). Trailing 24h.
+# Reached: every LLM job stops until the window moves. Set to a value the nightly
+# run never reaches, to disable. Set to 15.0 by Anze 2026-10-09.
+daily_budget_usd = 15.0
+# Optional jobs also pause while the trailing 5h window of billable tokens (usage/status.json,
+# personal account) is at or above this. Added 2026-10-09 by Jarvis as a starting point, not
+# measured against a server limit (Anthropic publishes none). Remove the key to turn it off.
+five_hour_pause_tokens = 2000000
+# Optional jobs (issue-triage, portfolio-advisor) also stop at 80% of the weekly
+# ceiling, so the last 20% stays for the jobs that must run.
+# The work account has its own quota, ledger and ceiling (Anze 2026-10-06: quota separate
+# per account). Same value to start; burn.py falls back to its own default if missing.
+weekly_budget_usd_work = 40.0

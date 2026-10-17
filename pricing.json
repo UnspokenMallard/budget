@@ -1,0 +1,24 @@
+{
+  "usageWindow": "daily",
+  "pricingUsdPerMTok": {
+    "_comment": "Anthropic first-party API rates, cached 2026-06-24 via claude-api skill. cacheWrite/cacheRead are not published per-model here - using the standard ratio (write ~1.25x input, read ~0.1x input) as an assumption. Sonnet 5 has an intro rate through 2026-08-31 (input 2.00/output 10.00); using standard rate below to stay valid past that date. Update this file if rates change.",
+    "haiku": {
+      "input": 1.0,
+      "output": 5.0,
+      "cacheWrite": 1.25,
+      "cacheRead": 0.1
+    },
+    "sonnet": {
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite": 3.75,
+      "cacheRead": 0.3
+    },
+    "opus": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite": 6.25,
+      "cacheRead": 0.5
+    }
+  }
+}

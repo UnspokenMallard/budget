@@ -50,15 +50,17 @@ Service, JSON:
 - `POST /run/{usage-refresh|usage-digest|spend-by-effort|token-report}` (Jarvis's jobs call these)
 - `GET /report`
 
-Client: `client/budget_client.py`, stdlib only (urllib), importable from Jarvis's venv, Mind's
-venv and system Python hooks. The HUD calls the API over HTTP. CLI `budget` mirrors the old
-`burn.py` CLI (`record-job`, `job-budget [--optional] --scope=`) with the same exit codes
-(0 under, 1 over, 2 could not check).
+Python callers on this Mac (Jarvis's daemon and scripts, Mind's jobs) import the `budget`
+library directly (stdlib only; `~/.budget` on `sys.path` through `core.py` and `jobcommon.py`):
+same code, same store, no network hop, so recording cannot fail on the service being down. The
+HUD uses the service over HTTP. CLI `bin/budget` keeps the old `burn.py` CLI contract
+(`record-job`, `job-budget [--optional] --scope=`; exit 0 under, 1 over, 2 could not check);
+Jarvis's jobs call `bin/budget-job.sh <subcommand>` (`usage-refresh`, `spend-by-effort`).
 
 ## Failure semantics (kept from burn.py and limits.py)
 
-- Recording never raises into the caller. When the service is down the client appends to
-  `state/spool/*.jsonl`; the service ingests the spool at start and on every record call.
+- Recording never raises into the caller (the library catches; the HUD's POST is fire and
+  forget, so Budget down loses that one HUD row).
 - The job budget gate is three-valued: "could not check" is its own answer, and an optional
   job refuses to start on it rather than guessing.
 - The brake, a limit window and quota headroom fail open (unknown = not braked, not blocked,
@@ -71,3 +73,21 @@ move `usage/` and the limit/brake state files; switch every caller (daemon modul
 scripts, `jobcommon.py`, HUD `ledger.js`/`quota.js`/`jobvalue.js`, Mind's sleep and jobs, the
 `/quota` skill); repoint the five jobs; drop the old tables only after Anze confirms. Selftest,
 HUD tests and Mind tests must pass before and after.
+
+## As built (2026-10-17)
+
+- `budget/store.py` (paths from `BUDGET_HOME`, default `~/.budget`; tests set it to scratch),
+  `ledger.py`, `brake.py`, `limits.py`, `quota.py`, `cli.py`, `jobs/` (usage refresh,
+  spend-by-effort), `server/app.py` (launchd `com.budget.server`), `config.toml`, `pricing.json`
+  (was `~/.jarvis/config.json`), `tests/test_budget.py`.
+- Moved with their rows: `provider_calls` (86), `job_calls` (260), `usage_samples` (3,831), and
+  `usage/`, `logs/limit-hits/`. The old tables are still in `jarvis.db`, unused, until Anze
+  confirms dropping them; backup `~/.jarvis/jarvis.db.bak-budget`.
+- Fixed on the way: brain's calls were counted twice by the burn rate and by the review ledger's
+  "scoring" line (both added `brain_calls` to `provider_calls`, which already held them).
+- Not moved: `run-usage-digest.py` (it posts to Notion, an outward action: Jarvis) and the
+  `token-report` handler (it shells out to `~/.claude-personal/scripts/token-report.py`; moving
+  it is a later, optional step).
+- Jarvis keeps: `daemon/burn.py` (stuck and repeated-failure detectors, `check_keyed` combining
+  them with `ledger.burn_findings`), `core.record_limit` (Budget records, Jarvis alerts), the
+  brake alert in `handlers/burn_check.py`, the queue and brain refusing while braked.
