@@ -76,6 +76,11 @@ HUD tests and Mind tests must pass before and after.
 
 ## As built (2026-10-17)
 
+Ledger note (Gateway, 2026-10-17/18): every model call is recorded by `~/.gateway` now. `provider_calls.surface` carries the
+Gateway surface name: brain's rows are `escalation`, `inbound-task-triage`, `inbound-message-triage`, `inbound-draft`,
+`report-narrate`, `originate` (they were all `work` before), plus `criteria-score` (now with a cost), `hud-*`, `mind-improve-*`
+and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are recorded by Gateway (`limits.record`).
+
 - `budget/store.py` (paths from `BUDGET_HOME`, default `~/.budget`; tests set it to scratch),
   `ledger.py`, `brake.py`, `limits.py`, `quota.py`, `cli.py`, `jobs/` (usage refresh,
   spend-by-effort), `server/app.py` (launchd `com.budget.server`), `config.toml`, `pricing.json`
