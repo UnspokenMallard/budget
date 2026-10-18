@@ -87,7 +87,7 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
   (was `~/.jarvis/config.json`), `tests/test_budget.py`.
 - Moved with their rows: `provider_calls` (86), `job_calls` (260), `usage_samples` (3,831), and
   `usage/`, `logs/limit-hits/`. The old tables are still in `jarvis.db`, unused, until Anze
-  confirms dropping them; backup `~/.jarvis/jarvis.db.bak-budget`.
+  confirms dropping them; backup `~/.jarvis/jarvis.db.bak-budget` deleted 2026-10-18.
 - Fixed on the way: brain's calls were counted twice by the burn rate and by the review ledger's
   "scoring" line (both added `brain_calls` to `provider_calls`, which already held them).
 - Not moved: `run-usage-digest.py` (it posts to Notion, an outward action: Jarvis) and the
