@@ -90,6 +90,15 @@ def test_service_and_cli():
     receipt = json.loads((TMP / "state" / "jobs" / "token-report.json").read_text())
     assert r.returncode == 0 and receipt["ok"] and receipt["bytes"] >= 200, r.stdout + r.stderr
     assert Path(receipt["report"]).parent == TMP / "state" / "reports" / "token-attribution"
+    # usage-digest: no usage.json is a failure; with one (and no status.json) the token-sum fallback row
+    digest = [sys.executable, str(ROOT / "budget" / "jobs" / "usage-digest.py")]
+    assert subprocess.run(digest, capture_output=True, env=env).returncode == 1
+    (TMP / "state" / "usage").mkdir(parents=True, exist_ok=True)
+    (TMP / "state" / "usage" / "usage.json").write_text(json.dumps(
+        {"window": "2026-10-18", "claude": {"estimatedCostUsd": 1.5, "inputTokens": 7, "outputTokens": 3}}))
+    assert subprocess.run(digest, capture_output=True, env=env).returncode == 0
+    row = json.loads((TMP / "state" / "reports" / "usage-digest" / "latest.json").read_text())
+    assert row["row"][:5] == ["2026-10-18", "10", "10", "$1.5000", "-"] and row["row"][5].startswith("fallback")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
   budget spend-by-effort [--days N]
   budget context-audit                            weekly: what long sessions spend re-reading their context
   budget token-report [--days N]                  weekly: token attribution report and its receipt
+  budget usage-digest                             today's usage digest row (Jarvis posts it to Notion)
   budget limits                                   one line per provider
   budget report
 """
@@ -50,9 +51,11 @@ def main(argv: list[str] | None = None) -> int:
         if "--optional" in argv:  # optional jobs stop before the ceiling, so the weekly budget stays for the rest
             return 1 if b["paused_for_optional"] else 0
         return 1 if b["over"] else 0
-    if cmd in (["usage-refresh"], ["spend-by-effort"], ["context-audit"], ["token-report"]):
+    if cmd in (["usage-refresh"], ["spend-by-effort"], ["context-audit"], ["token-report"],
+               ["usage-digest"]):
         script = {"usage-refresh": "update-usage-job.py", "spend-by-effort": "spend-by-effort.py",
-                  "context-audit": "context-audit.py", "token-report": "token-report.py"}[cmd[0]]
+                  "context-audit": "context-audit.py", "token-report": "token-report.py",
+                  "usage-digest": "usage-digest.py"}[cmd[0]]
         return subprocess.run([sys.executable, str(JOBS / script), *argv[1:]]).returncode
     if cmd == ["limits"]:
         print("limits\n" + limits.status())
