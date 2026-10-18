@@ -4,6 +4,7 @@
   budget job-budget [--optional] [--scope=work]   exit 0 under, 1 at or over, 2 could not check
   budget usage-refresh                            refresh state/usage/status.json and usage.json
   budget spend-by-effort [--days N]
+  budget context-audit                            weekly: what long sessions spend re-reading their context
   budget limits                                   one line per provider
   budget report
 """
@@ -48,8 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         if "--optional" in argv:  # optional jobs stop before the ceiling, so the weekly budget stays for the rest
             return 1 if b["paused_for_optional"] else 0
         return 1 if b["over"] else 0
-    if cmd in (["usage-refresh"], ["spend-by-effort"]):
-        script = "update-usage-job.py" if cmd == ["usage-refresh"] else "spend-by-effort.py"
+    if cmd in (["usage-refresh"], ["spend-by-effort"], ["context-audit"]):
+        script = {"usage-refresh": "update-usage-job.py", "spend-by-effort": "spend-by-effort.py",
+                  "context-audit": "context-audit.py"}[cmd[0]]
         return subprocess.run([sys.executable, str(JOBS / script), *argv[1:]]).returncode
     if cmd == ["limits"]:
         print("limits\n" + limits.status())
