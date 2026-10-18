@@ -1,6 +1,7 @@
 """Budget against a scratch store: ledger and ceilings, the brake decision, usage limits, the
 service's answers and its write guard, and the CLI exit codes job scripts rely on.
 Run: ~/.budget/.venv/bin/python ~/.budget/tests/test_budget.py"""
+import json
 import os
 import subprocess
 import sys
@@ -79,6 +80,16 @@ def test_service_and_cli():
     assert run("record-job", "nightly", "1", "3", "0.25", "haiku", "a detail").returncode == 0
     assert run("job-budget").returncode == 0  # no config.toml in the scratch home: the default $40 ceiling, not reached
     assert run("job-budget", "--scope=nobody").returncode == 2
+    # token-report reads transcripts under $HOME: one assistant turn, then the dated report and its receipt
+    proj = TMP / "home" / ".claude-personal" / "projects" / "p"
+    proj.mkdir(parents=True)
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    (proj / "s.jsonl").write_text(json.dumps({"type": "assistant", "timestamp": ts, "message": {
+        "model": "claude-haiku-5-5", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": []}}) + "\n")
+    r = subprocess.run([sys.executable, str(ROOT / "budget" / "jobs" / "token-report.py")], capture_output=True, text=True, env={**env, "HOME": str(TMP / "home")})
+    receipt = json.loads((TMP / "state" / "jobs" / "token-report.json").read_text())
+    assert r.returncode == 0 and receipt["ok"] and receipt["bytes"] >= 200, r.stdout + r.stderr
+    assert Path(receipt["report"]).parent == TMP / "state" / "reports" / "token-attribution"
 
 
 if __name__ == "__main__":

@@ -90,9 +90,12 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
   confirms dropping them; backup `~/.jarvis/jarvis.db.bak-budget` deleted 2026-10-18.
 - Fixed on the way: brain's calls were counted twice by the burn rate and by the review ledger's
   "scoring" line (both added `brain_calls` to `provider_calls`, which already held them).
-- Not moved: `run-usage-digest.py` (it posts to Notion, an outward action: Jarvis) and the
-  `token-report` handler (it shells out to `~/.claude-personal/scripts/token-report.py`; moving
-  it is a later, optional step).
+- Not moved: `run-usage-digest.py` (it posts to Notion, an outward action: Jarvis).
+- `token-report` moved 2026-10-18: `budget token-report` (`budget/jobs/token-report.py`, a copy of
+  `~/.claude-personal/scripts/token-report.py`, which stays for the tool-telemetry hook) writes
+  `state/reports/token-attribution/<date>-token-attribution.md` and the receipt
+  `state/jobs/token-report.json`; Jarvis's job `token-report` calls it through `budget-job.sh`.
+  The old reports were copied from `~/.jarvis/reports/token-attribution/` (copies, mtimes kept).
 - Jarvis keeps: `daemon/burn.py` (stuck and repeated-failure detectors, `check_keyed` combining
   them with `ledger.burn_findings`), `core.record_limit` (Budget records, Jarvis alerts), the
   brake alert in `handlers/burn_check.py`, the queue and brain refusing while braked.
