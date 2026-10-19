@@ -198,6 +198,11 @@ def burn_tag(scope: str) -> str:
     return "BURN:" if scope == "personal" else f"BURN[{scope}]:"
 
 
+def calls_tag(scope: str) -> str:
+    """Prefix of the call-count finding: it warns only, and the brake counts `burn_tag` findings alone."""
+    return burn_tag(scope).replace("BURN", "BURN-CALLS", 1)
+
+
 def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]:
     """Over-limit spending per account in the burn window, each with a stable alert key.
     A key names the condition; only the message carries the numbers."""
@@ -209,8 +214,8 @@ def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]
     for scope in SCOPES:  # each account on its own: a burst on one says nothing about the other
         calls, spend = call_rate(window, scope)
         if calls > max_calls:
-            out.append((f"burn:calls:{scope}", f"{burn_tag(scope)} the daemon made {calls} {scope}-account call(s) in "
-                                                f"{window // 60} min, over the limit of {max_calls}"))
+            out.append((f"burn:calls:{scope}", f"{calls_tag(scope)} the daemon made {calls} {scope}-account call(s) in "
+                                                f"{window // 60} min, over the limit of {max_calls} (warning only)"))
         if spend > max_spend:
             out.append((f"burn:spend:{scope}", f"{burn_tag(scope)} the daemon spent ${spend:.2f} on the {scope} account "
                                                 f"in {window // 60} min, over the limit of ${max_spend:.2f}"))

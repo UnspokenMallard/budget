@@ -102,3 +102,7 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
 - Jarvis keeps: `daemon/burn.py` (stuck and repeated-failure detectors, `check_keyed` combining
   them with `ledger.burn_findings`), `core.record_limit` (Budget records, Jarvis alerts), the
   brake alert in `handlers/burn_check.py`, the queue and brain refusing while braked.
+- Brake on spend only (2026-10-19, proactive-agent step 3): `max_spend_usd_per_window` over its limit for
+  `brake_after_consecutive_windows` windows engages the brake; `max_calls_per_window` over its limit only
+  warns (finding tag `BURN-CALLS:`, key `burn:calls:<scope>`, which the brake ignores). Restart the daemon
+  (`~/.jarvis/restart.sh`) to load it: Budget modules are not hot-reloaded.

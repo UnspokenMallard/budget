@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "server"))
 from budget import brake, ledger, limits, store  # noqa: E402
 
 CFG = {"llm_jobs": {"weekly_budget_usd": 10.0, "daily_budget_usd": 6.0},
-       "burn": {"max_calls_per_window": 2, "brake_after_consecutive_windows": 2, "brake_clears_after_s": 1}}
+       "burn": {"max_calls_per_window": 2, "max_spend_usd_per_window": 1.0, "brake_after_consecutive_windows": 2, "brake_clears_after_s": 1}}
 
 
 def test_ledger_and_ceilings():
@@ -39,6 +39,12 @@ def test_ledger_and_ceilings():
 
 
 def test_brake():
+    findings = [t for _, t in ledger.burn_findings(CFG)]
+    assert findings and findings[0].startswith("BURN-CALLS:") and "warning only" in findings[0]
+    assert brake.consider(findings, CFG) == (None, None)  # call count over the limit only warns
+    assert brake.consider(findings, CFG) == (None, None)
+    ledger.record_call("hud", True, 1.0, 1.2, "opus")  # spend $1.2 > $1.0 per window
+    assert [k for k, _ in ledger.burn_findings(CFG)] == ["burn:calls:personal", "burn:spend:personal"]
     findings = [t for _, t in ledger.burn_findings(CFG)]
     note, engaged = brake.consider(findings, CFG)
     assert engaged is None and "1/2" in note

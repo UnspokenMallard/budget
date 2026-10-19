@@ -53,7 +53,9 @@ max_spend_usd_per_window = 1.50
 
 # The brake (step 4). Set brake_enabled = false to go back to alert-only.
 #
-# ONLY sustained burn engages it -- not stuck events, not repeated failures.
+# ONLY sustained SPEND over max_spend_usd_per_window engages it -- not stuck events, not repeated
+# failures, not call count (max_calls_per_window only warns; it braked twice on cheap calls,
+# 2026-10-18 and 2026-10-19).
 # Burn is the one signal with a provable margin (measured demand 2.36 daemon
 # calls/day against a ceiling sustaining 1152, ~489x headroom) and the only one
 # that means "spending is running away". It stops NEW model-spending work

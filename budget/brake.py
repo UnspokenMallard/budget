@@ -1,8 +1,9 @@
 """The burn brake's decision and state (moved from Jarvis's daemon/burn.py, 2026-10-17).
 
 Deliberately narrow, as built in Jarvis's Phase 6:
-- Only sustained BURN engages it (over the spend or call limit for `brake_after_consecutive_windows`
-  consecutive windows, 3 x 15 min), never stuck events or repeated failures.
+- Only sustained BURN engages it (over the spend limit for `brake_after_consecutive_windows`
+  consecutive windows, 3 x 15 min), never stuck events, repeated failures or call count: a call
+  count over its limit only warns (2026-10-19: it braked twice on 15 and 21 cheap calls).
 - It stops new model-spending work (Jarvis's queue dispatch and brain escalations); it never
   kills running work, and scheduled health-check jobs keep running.
 - It self-clears after `brake_clears_after_s`: a brake that needs a human converts a spend
