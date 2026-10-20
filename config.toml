@@ -97,7 +97,7 @@ brake_clears_after_s = 3600
 # introspect $1.25, usage-digest $0.50 -- down from $6/$6/$4/$6/$1, which were
 # sized from Opus-era token counts. A cap that binds stops that run and says so
 # in its log ("stopped at its per-run cap"); raise that one cap, not all of them.
-weekly_budget_usd = 40.0
+weekly_budget_usd = 60.0
 # Daily cap on the same ledger (added 2026-10-09, personal account). Trailing 24h.
 # Reached: every LLM job stops until the window moves. Set to a value the nightly
 # run never reaches, to disable. Set to 15.0 by Anze 2026-10-09.
