@@ -40,9 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_job_calls_ts ON job_calls(ts);
 
 SCOPES = ("personal", "work")
 # Kept equal to config.toml's value, so a missing key can never raise the ceiling.
-JOB_WEEKLY_BUDGET_DEFAULT = 40.0
+JOB_WEEKLY_BUDGET_DEFAULT = 60.0
 # Share of the weekly ceiling at which optional jobs stop starting (added 2026-10-09).
-OPTIONAL_PAUSE_FRACTION = 0.8
+OPTIONAL_PAUSE_FRACTION = 1.0  # raised from 0.8 by Anze 2026-10-20
 
 
 def usage_dir():
