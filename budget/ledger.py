@@ -175,7 +175,8 @@ def five_hour_tokens(scope: str = "personal") -> float | None:
 def job_budget(cfg: Mapping[str, Any] | None = None, scope: str = "personal") -> dict:
     """One account's LLM-job ceilings and where its spend stands ([llm_jobs]):
     weekly ceiling (`over`), optional daily ceiling (`over_daily`, in `over`), and the optional pause
-    at 80% of the weekly ceiling, the daily ceiling or the 5h token pause (`paused_for_optional`)."""
+    at the weekly ceiling (OPTIONAL_PAUSE_FRACTION, 100% since 2026-10-20), the daily ceiling or the 5h token pause
+    (`paused_for_optional`)."""
     cfg = cfg if cfg is not None else store.load_config()
     llm = cfg.get("llm_jobs") or {}
     key = "weekly_budget_usd" if scope == "personal" else f"weekly_budget_usd_{scope}"
