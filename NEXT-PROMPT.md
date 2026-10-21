@@ -13,6 +13,28 @@ Earliest-useful dates, not deadlines; being late costs nothing.
 | 2026-10-18 08:00 | the night's jobs recorded into `state/budget.db` (`budget report`: LLM jobs 7d grew), `usage-refresh` hourly fresh, no `handler-failed` for `burn-check`, `usage-refresh`, `spend-by-effort` (Mon) | the first night |
 | after that check, Anze | drop `provider_calls`, `job_calls`, `usage_samples` from `~/.jarvis/jarvis.db` and delete `~/.jarvis/jarvis.db.bak-budget` | Anze's confirmation |
 
+## Audit 2026-10-21: your items
+
+From the Jarvis audit (HUD task audit-jarvis-and-all-its-com-e5a9). The evidence, effort, risk and
+done-criteria of each item are in `~/.jarvis/AUDIT-2026-10-21.md`; the phases and Anze's decisions
+are in `~/.jarvis/NEXT-PROMPT.md`. Build an item only after Anze approves its phase. Prompt A below
+covers these rows too. The rule stays: this component measures or knows; Jarvis alerts and acts.
+
+- **A05 / D3 (Phase 0)** Budget paused nightly-reflection on 10-20 ($40.09 of $40), correctly by the
+  rules. If Anze picks a reserved line for it, the ceiling logic here must honour it.
+- **A31 (Phase 3)** Report "spend on failed runs" per job per week (about $15 in 14 days:
+  nightly-reflection $7.24, remediate $4.06, checkups $2.79, weekly-activity $1.03). Count a run
+  with exit 1 as failed even if the job says OK (weekly-activity did). Jarvis alerts above $5.
+- **A35 (Phase 3)** Interactive sessions are invisible here: the context audit shows $1,261 a week
+  above the 200k window against a $1,241 baseline; the ledger shows about $101 in 14 days and the
+  last 7 days ($70) more than double the week before ($31). Report interactive spend beside jobs.
+- **A38 (Phase 3)** token-report and usage-digest are designated to move here from Analyst.
+
+| When (earliest useful, not a deadline) | Step | Waits on |
+|---|---|---|
+| 2026-10-26 (after the weekly context-audit) | A35: compare with the 10-19 figure ($1,261/wk) | the weekly run |
+| with Phase 3 | A31, then A35, then the A38 moves | Phase 3 approval |
+
 ## A: advance the work
 
 > Read `~/.budget/DESIGN.md` and this file. Do the first row whose date has passed and report.
