@@ -68,7 +68,8 @@ def record_call(b: dict) -> None:
 def record_job(b: dict) -> None:
     ledger.record_job(str(b["job"]), bool(b.get("ok")), float(b.get("duration_s") or 0),
                       None if b.get("cost_usd") is None else float(b["cost_usd"]), str(b.get("model") or ""),
-                      str(b.get("detail") or ""), b.get("scope") if b.get("scope") in ledger.SCOPES else "personal")
+                      str(b.get("detail") or ""), b.get("scope") if b.get("scope") in ledger.SCOPES else "personal",
+                      str(b.get("reason") or ""), int(b["attempt"]) if str(b.get("attempt") or "").isdigit() else None)
 
 
 def limits_answer(_r) -> dict:
