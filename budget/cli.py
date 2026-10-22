@@ -1,6 +1,6 @@
 """`budget` CLI (bin/budget). Same contract as Jarvis's old `burn.py` CLI, so job scripts keep it:
 
-  budget record-job <name> <ok 0|1> <duration_s> <cost_usd|-> <model> [detail...] [--scope=work]
+  budget record-job <name> <ok 0|1> <duration_s> <cost_usd|-> <model> [detail...] [--scope=work] [--reason=TEXT] [--attempt=N]
   budget job-budget [--optional] [--scope=work]   exit 0 under, 1 at or over, 2 could not check
   budget usage-refresh                            refresh state/usage/status.json and usage.json
   budget spend-by-effort [--days N]
@@ -31,12 +31,19 @@ def main(argv: list[str] | None = None) -> int:
     if scope not in ledger.SCOPES:
         print(f"unknown scope {scope!r}")
         return 2
+    opts = {}
+    for arg in list(argv):
+        for name in ("reason", "attempt"):
+            if arg.startswith(f"--{name}="):
+                opts[name] = arg.split("=", 1)[1]
+                argv.remove(arg)
     cmd = argv[:1]
     if cmd == ["record-job"] and len(argv) >= 6:
         name, ok, duration, cost, model = argv[1:6]
         ledger.record_job(name, ok=ok == "1", duration_s=float(duration),
                           cost_usd=None if cost in ("", "-") else float(cost), model=model,
-                          detail=" ".join(argv[6:]), scope=scope)
+                          detail=" ".join(argv[6:]), scope=scope, reason=opts.get("reason", ""),
+                          attempt=int(opts["attempt"]) if opts.get("attempt", "").isdigit() else None)
         return 0
     if cmd == ["job-budget"]:
         try:

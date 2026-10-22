@@ -4,7 +4,7 @@
 The measuring half of Jarvis's old run-usage-digest.py: read state/usage/status.json and usage.json
 (usage-refresh writes both) and write the row Jarvis puts into the "Claude / Cursor Usage Digest"
 Notion table, as state/reports/usage-digest/<date>.json and latest.json. Posting stays Jarvis's.
-The Cursor column reads "-" since Cursor was removed on 2026-10-01.
+The Note column ends with the 'wasted spend, 7 days' line (2026-10-22). The Cursor column reads "-" since Cursor was removed on 2026-10-01.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from budget import store  # noqa: E402
+from budget import ledger, store  # noqa: E402
 
 HEADER = ["Date", "Claude 5h tokens", "Claude 7d tokens", "Claude est. cost (USD)", "Cursor used %", "Note"]
 
@@ -49,10 +49,17 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         print(f"usage digest row not built: {type(exc).__name__}: {exc}")
         return 1
+    try:
+        wasted = ledger.wasted_line()
+    except Exception as exc:  # noqa: BLE001 - the usage row is worth posting without it
+        wasted = ""
+        print(f"wasted spend not read: {type(exc).__name__}: {exc}")
+    if wasted:
+        values[-1] += f"; {wasted}"
     out = store.STATE / "reports" / "usage-digest"
     out.mkdir(parents=True, exist_ok=True)
     text = json.dumps({"built_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-                       "date": date, "header": HEADER, "row": values}, indent=2)
+                       "date": date, "header": HEADER, "row": values, "wasted": wasted}, indent=2)
     (out / f"{date}.json").write_text(text, encoding="utf-8")
     (out / "latest.json").write_text(text, encoding="utf-8")
     print(f"usage digest row for {date}: {', '.join(values[1:4])}")

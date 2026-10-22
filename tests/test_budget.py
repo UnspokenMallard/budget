@@ -38,6 +38,32 @@ def test_ledger_and_ceilings():
     assert j["job"] == "advisor" and j["runs30"] == 2 and j["usd30"] == 6.5 and j["failed30"] == 0
 
 
+def test_wasted_spend_and_migration():
+    import sqlite3
+    old = TMP / "old.db"  # a pre-T6 job_calls table keeps its rows through the migration
+    c = sqlite3.connect(old)
+    c.execute("CREATE TABLE job_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, job TEXT NOT NULL, "
+              "model TEXT, ok INTEGER NOT NULL, duration_s REAL, cost_usd REAL, detail TEXT, scope TEXT NOT NULL DEFAULT 'personal')")
+    c.execute("INSERT INTO job_calls(ts, job, ok, cost_usd) VALUES(?, 'legacy', 0, 1.0)", (time.time(),))
+    c.commit()
+    c.close()
+    real, store.DB_PATH = store.DB_PATH, old
+    try:
+        ledger.ensure_schema()
+        ledger.ensure_schema()  # idempotent
+        assert ledger.wasted_spend() == [{"job": "legacy", "rows": 1, "usd": 1.0}]  # NULL reason, ok=0 still counts
+    finally:
+        store.DB_PATH = real
+    ledger.record_job("w-job", True, 1, 0.5, "haiku", attempt=1)  # useful
+    bad = ledger.record_job("w-job", True, 1, 0.25, "haiku", attempt=1)
+    ledger.reject_job(bad, "no artifact")  # call ok, output rejected
+    ledger.record_job("w-job", False, 1, 0.125, "haiku", reason="transient", attempt=2)  # retried
+    assert [w for w in ledger.wasted_spend() if w["job"] == "w-job"] == [{"job": "w-job", "rows": 2, "usd": 0.38}]
+    j = next(x for x in ledger.job_spend_by_job() if x["job"] == "w-job")
+    assert j["failed30"] == 1 and j["rejected30"] == 1
+    assert ledger.wasted_line().startswith("wasted spend, 7 days: $")
+
+
 def test_brake():
     findings = [t for _, t in ledger.burn_findings(CFG)]
     assert findings and findings[0].startswith("BURN-CALLS:") and "warning only" in findings[0]
@@ -84,6 +110,8 @@ def test_service_and_cli():
     env = {**os.environ, "BUDGET_HOME": str(TMP)}
     run = lambda *a: subprocess.run(cli + list(a), capture_output=True, text=True, env=env)  # noqa: E731
     assert run("record-job", "nightly", "1", "3", "0.25", "haiku", "a detail").returncode == 0
+    assert run("record-job", "cli-job", "0", "3", "0.5", "haiku", "d", "--reason=error_max_turns", "--attempt=2").returncode == 0
+    assert any(w["job"] == "cli-job" for w in ledger.wasted_spend())
     assert run("job-budget").returncode == 0  # no config.toml in the scratch home: the default $40 ceiling, not reached
     assert run("job-budget", "--scope=nobody").returncode == 2
     # token-report reads transcripts under $HOME: one assistant turn, then the dated report and its receipt
@@ -105,10 +133,12 @@ def test_service_and_cli():
     assert subprocess.run(digest, capture_output=True, env=env).returncode == 0
     row = json.loads((TMP / "state" / "reports" / "usage-digest" / "latest.json").read_text())
     assert row["row"][:5] == ["2026-10-18", "10", "10", "$1.5000", "-"] and row["row"][5].startswith("fallback")
+    assert "wasted spend, 7 days" in row["row"][5] and row["wasted"] in row["row"][5]
 
 
 if __name__ == "__main__":
     test_ledger_and_ceilings()
+    test_wasted_spend_and_migration()
     test_brake()
     test_limits()
     test_service_and_cli()

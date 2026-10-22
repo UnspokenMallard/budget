@@ -49,9 +49,18 @@ def usage_dir():
     return store.STATE / "usage"
 
 
+# Added 2026-10-22 (T6): `ok` means only "the call succeeded"; `reason` says why a row was wasted
+# (the subtype of a failed call, or why the job rejected the output), `attempt` is the retry number.
+_JOB_COLUMNS = (("reason", "TEXT"), ("attempt", "INTEGER"))
+
+
 def ensure_schema() -> None:
     with store.connect() as conn:
         conn.executescript(_SCHEMA)
+        have = {r[1] for r in conn.execute("PRAGMA table_info(job_calls)")}
+        for col, kind in _JOB_COLUMNS:
+            if col not in have:
+                conn.execute(f"ALTER TABLE job_calls ADD COLUMN {col} {kind}")
 
 
 def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
@@ -64,16 +73,32 @@ def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
 
 
 def record_job(job: str, ok: bool, duration_s: float, cost_usd: float | None = None, model: str = "",
-               detail: str = "", scope: str = "personal") -> None:
-    """Record one nightly-job run. Never raises into the caller."""
+               detail: str = "", scope: str = "personal", reason: str = "", attempt: int | None = None) -> int | None:
+    """Record one nightly-job run and return its row id (None when it could not be written).
+    `ok` is only "the call succeeded"; `reason` is why the row was wasted. Never raises into the caller."""
     try:
         ensure_schema()
         with store.connect() as conn:
-            conn.execute("INSERT INTO job_calls(ts, job, model, ok, duration_s, cost_usd, detail, scope) "
-                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                         (time.time(), job, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope))
+            return conn.execute(
+                "INSERT INTO job_calls(ts, job, model, ok, duration_s, cost_usd, detail, scope, reason, attempt) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (time.time(), job, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope,
+                 reason[:200], attempt)).lastrowid
     except Exception as exc:  # noqa: BLE001
         log.debug("budget: could not record job %s: %s", job, exc)
+        return None
+
+
+def reject_job(row_id: int | None, reason: str) -> None:
+    """A job refused the output of a call that succeeded: the row stays `ok`, its spend turns wasted."""
+    if row_id is None:
+        return
+    try:
+        ensure_schema()
+        with store.connect() as conn:
+            conn.execute("UPDATE job_calls SET reason = ? WHERE id = ?", (reason[:200], row_id))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("budget: could not mark job row %s rejected: %s", row_id, exc)
 
 
 def record_call(surface: str, ok: bool, duration_s: float, cost_usd: float | None = None, model: str = "",
@@ -147,17 +172,41 @@ def job_spend(days: float = 7, scope: str | None = None) -> tuple[float, int]:
     return float(spend), int(runs)
 
 
+# A row is wasted when the call failed or a job rejected its output; a retried attempt failed, so it is in.
+_WASTED = "(ok = 0 OR COALESCE(reason, '') <> '')"
+
+
+def wasted_spend(days: float = 7) -> list[dict]:
+    """Per job in the trailing window: rows that failed, were retried or were rejected, and their known cost."""
+    ensure_schema()
+    with store.connect() as conn:
+        rows = conn.execute(
+            f"SELECT job, COUNT(*), ROUND(COALESCE(SUM(cost_usd), 0), 2) FROM job_calls WHERE ts >= ? AND {_WASTED} "
+            "GROUP BY job HAVING COUNT(*) > 0 ORDER BY 3 DESC", (time.time() - days * 86400,)).fetchall()
+    return [{"job": j, "rows": n, "usd": usd} for j, n, usd in rows]
+
+
+def wasted_line(days: int = 7) -> str:
+    """One line for the digest and the report; empty when nothing was wasted."""
+    rows = wasted_spend(days)
+    if not rows:
+        return ""
+    per_job = ", ".join(f"{r['job']} ${r['usd']:.2f} ({r['rows']})" for r in rows)
+    return f"wasted spend, {days} days: ${sum(r['usd'] for r in rows):.2f} in {sum(r['rows'] for r in rows)} row(s): {per_job}"
+
+
 def job_spend_by_job() -> list[dict]:
-    """Per job over 30 days: scope(s), runs and known spend in 7 and 30 days, failed runs.
+    """Per job over 30 days: scope(s), runs and known spend in 7 and 30 days, failed runs, rejected runs.
     For Jarvis's job-value review and the HUD's Job value panel."""
     ensure_schema()
     week = time.time() - 7 * 86400
     with store.connect() as conn:
         rows = conn.execute(
             "SELECT job, GROUP_CONCAT(DISTINCT scope), SUM(ts >= ?), ROUND(SUM(CASE WHEN ts >= ? THEN cost_usd ELSE 0 END), 2), "
-            "COUNT(*), ROUND(SUM(cost_usd), 2), SUM(ok = 0) FROM job_calls WHERE ts >= ? GROUP BY job ORDER BY 6 DESC",
+            "COUNT(*), ROUND(SUM(cost_usd), 2), SUM(ok = 0), SUM(ok = 1 AND COALESCE(reason, '') <> '') "
+            "FROM job_calls WHERE ts >= ? GROUP BY job ORDER BY 6 DESC",
             (week, week, time.time() - 30 * 86400)).fetchall()
-    keys = ("job", "scope", "runs7", "usd7", "runs30", "usd30", "failed30")
+    keys = ("job", "scope", "runs7", "usd7", "runs30", "usd30", "failed30", "rejected30")
     return [dict(zip(keys, r)) for r in rows]
 
 
@@ -246,4 +295,6 @@ def report_lines(cfg: Mapping[str, Any] | None = None) -> list[str]:
                   f"(limits {s['max_calls_per_window']} / ${s['max_spend_usd_per_window']:.2f})",
                   f"  [{scope}] last 24h     : {day_calls} call(s), ${day_spend:.2f} known spend",
                   f"  [{scope}] LLM jobs 7d  : ${b['spent']:.2f} of ${b['ceiling']:.2f} in {b['runs']} run(s)"]
+    if wasted := wasted_line():
+        lines.append(f"  {wasted}")
     return lines
