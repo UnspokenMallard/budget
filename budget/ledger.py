@@ -67,7 +67,8 @@ def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
     cfg = cfg if cfg is not None else store.load_config()
     section = dict(cfg.get("burn") or {})
     for k, v in (("enabled", True), ("window_s", 900), ("max_calls_per_window", 12), ("max_spend_usd_per_window", 1.50),
-                 ("brake_enabled", True), ("brake_after_consecutive_windows", 3), ("brake_clears_after_s", 3600)):
+                 ("brake_enabled", True), ("brake_after_consecutive_windows", 3), ("brake_clears_after_s", 3600),
+                 ("count_exclude_surfaces", ["local:", "hud-"])):
         section.setdefault(k, v)
     return section
 
@@ -150,14 +151,17 @@ def sample_usage() -> dict | None:
     return rows[0] if rows else None
 
 
-def call_rate(window_s: int, scope: str | None = None) -> tuple[int, float]:
-    """(calls, total known spend) recorded inside the window; `scope` None sums both accounts."""
+def call_rate(window_s: int, scope: str | None = None, exclude: tuple[str, ...] = ()) -> tuple[int, float]:
+    """(calls, total known spend) recorded inside the window; `scope` None sums both accounts.
+    `exclude` surface prefixes drop out of the call count only; spend still sums every row."""
     ensure_schema()
     cutoff = time.time() - window_s
     extra, args = ("", (cutoff,)) if scope is None else (" AND scope = ?", (cutoff, scope))
+    counted = " AND ".join(["surface NOT LIKE ? || '%'"] * len(exclude)) or "1"
     with store.connect() as conn:
         calls, spend = conn.execute(
-            f"SELECT COUNT(*), COALESCE(SUM(cost_usd), 0) FROM provider_calls WHERE ts >= ?{extra}", args).fetchone()
+            f"SELECT COALESCE(SUM({counted}), 0), COALESCE(SUM(cost_usd), 0) FROM provider_calls WHERE ts >= ?{extra}",
+            (*exclude, *args)).fetchone()
     return int(calls), float(spend)
 
 
@@ -260,9 +264,10 @@ def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]
     if not s["enabled"]:
         return []
     window, max_calls, max_spend = int(s["window_s"]), int(s["max_calls_per_window"]), float(s["max_spend_usd_per_window"])
+    exclude = tuple(s["count_exclude_surfaces"])
     out = []
     for scope in SCOPES:  # each account on its own: a burst on one says nothing about the other
-        calls, spend = call_rate(window, scope)
+        calls, spend = call_rate(window, scope, exclude)
         if calls > max_calls:
             out.append((f"burn:calls:{scope}", f"{calls_tag(scope)} the daemon made {calls} {scope}-account call(s) in "
                                                 f"{window // 60} min, over the limit of {max_calls} (warning only)"))
@@ -288,7 +293,7 @@ def report_lines(cfg: Mapping[str, Any] | None = None) -> list[str]:
     window = int(s["window_s"])
     lines = []
     for scope in SCOPES:
-        calls, spend = call_rate(window, scope)
+        calls, spend = call_rate(window, scope, tuple(s["count_exclude_surfaces"]))
         day_calls, day_spend = call_rate(86400, scope)
         b = job_budget(cfg, scope)
         lines += [f"  [{scope}] last {window // 60} min : {calls} call(s), ${spend:.2f} known spend "
