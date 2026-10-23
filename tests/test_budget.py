@@ -97,6 +97,19 @@ def test_limits():
     assert limits.blocked(limits.CLAUDE) == (False, None)
 
 
+def test_billable_tokens_count_a_message_once():
+    d = TMP / "projects"
+    (d / "p").mkdir(parents=True)
+    rec = {"type": "assistant", "requestId": "r1", "message": {"id": "m1", "usage": {"input_tokens": 2, "output_tokens": 8, "cache_creation_input_tokens": 90}}}
+    (d / "p" / "s.jsonl").write_text("\n".join(json.dumps(r) for r in (rec, rec)) + "\n")  # thinking + tool_use blocks
+    old = limits.PROJECTS_DIRS_BY_PROVIDER[limits.CLAUDE]
+    limits.PROJECTS_DIRS_BY_PROVIDER[limits.CLAUDE] = [d]
+    try:
+        assert limits._billable_tokens_since(0) == 100
+    finally:
+        limits.PROJECTS_DIRS_BY_PROVIDER[limits.CLAUDE] = old
+
+
 def test_service_and_cli():
     import app
     from starlette.testclient import TestClient
@@ -144,5 +157,6 @@ if __name__ == "__main__":
     test_wasted_spend_and_migration()
     test_brake()
     test_limits()
+    test_billable_tokens_count_a_message_once()
     test_service_and_cli()
     print("ok")

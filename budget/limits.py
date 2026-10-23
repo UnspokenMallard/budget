@@ -310,6 +310,7 @@ def _billable_tokens_since(cutoff: float, provider: str = CLAUDE) -> int:
     """
     cutoff_dt = datetime.fromtimestamp(cutoff, timezone.utc)
     total = 0
+    seen = set()  # one transcript line per content block repeats the message usage
     for f in (f for d in PROJECTS_DIRS_BY_PROVIDER[provider] for f in d.glob("*/*.jsonl")):
         try:
             if datetime.fromtimestamp(f.stat().st_mtime, timezone.utc) < cutoff_dt:
@@ -343,6 +344,10 @@ def _billable_tokens_since(cutoff: float, provider: str = CLAUDE) -> int:
                             continue
                     except Exception:
                         pass
+                key = (msg.get("id"), rec.get("requestId"))
+                if key[0] and key in seen:
+                    continue
+                seen.add(key)
                 total += int(usage.get("input_tokens") or 0)
                 total += int(usage.get("output_tokens") or 0)
                 total += int(usage.get("cache_creation_input_tokens") or 0)

@@ -66,6 +66,7 @@ def parse_ts(rec):
 
 def billable_tokens_since(cutoff, dirs=None):
     total = 0
+    seen = set()  # Claude Code writes one line per content block, each repeating the message usage
     for f in (f for d in (dirs or PROJECTS_DIRS) for f in d.glob('*/*.jsonl')):
         try:
             if datetime.fromtimestamp(f.stat().st_mtime, timezone.utc) < cutoff:
@@ -94,6 +95,10 @@ def billable_tokens_since(cutoff, dirs=None):
                 ts = parse_ts(rec)
                 if ts and ts < cutoff:
                     continue
+                key = (msg.get('id'), rec.get('requestId'))
+                if key[0] and key in seen:
+                    continue
+                seen.add(key)
                 total += int(u.get('input_tokens') or 0)
                 total += int(u.get('output_tokens') or 0)
                 total += int(u.get('cache_creation_input_tokens') or 0)
