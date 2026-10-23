@@ -49,6 +49,7 @@ def parse_ts(rec: dict) -> datetime | None:
 
 def collect(days: int, now: datetime) -> dict:
     cutoff = now - timedelta(days=days)
+    seen: set = set()
     # (model, effort) -> counters
     cells: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for d in PROJECT_DIRS:
@@ -72,6 +73,10 @@ def collect(days: int, now: datetime) -> dict:
                     usage = msg.get("usage")
                     if not isinstance(usage, dict):
                         continue
+                    msg_key = (msg.get("id"), rec.get("requestId"))
+                    if msg_key[0] and msg_key in seen:
+                        continue  # one transcript line per content block repeats the message usage
+                    seen.add(msg_key)
                     key = (msg.get("model") or "unknown", str(rec.get("effort") or "(none)"))
                     c = cells[key]
                     c["input"] += int(usage.get("input_tokens") or 0)

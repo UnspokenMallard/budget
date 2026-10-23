@@ -185,6 +185,7 @@ def collect(days):
 
     files = sorted(f for d in PROJECT_DIRS if d.exists() for f in d.glob("*/*.jsonl"))
     scanned = 0
+    seen = set()
 
     for f in files:
         # Cheap prefilter: a transcript untouched since the cutoff has nothing
@@ -221,7 +222,13 @@ def collect(days):
                 msg = rec.get("message") or {}
                 content = msg.get("content")
 
-                if rec.get("type") == "assistant" and isinstance(msg.get("usage"), dict):
+                dup = False
+                if rec.get("type") == "assistant":
+                    key = (msg.get("id"), rec.get("requestId"))
+                    dup = bool(key[0]) and key in seen  # one line per content block repeats the message usage
+                    seen.add(key)
+
+                if rec.get("type") == "assistant" and isinstance(msg.get("usage"), dict) and not dup:
                     u = msg["usage"]
                     model = msg.get("model") or "unknown"
                     inp = int(u.get("input_tokens") or 0)

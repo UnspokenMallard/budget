@@ -67,6 +67,7 @@ def parse_ts(rec):
 def scan_claude_usage(cutoff, pricing, project_dirs):
     totals = {'inputTokens': 0, 'outputTokens': 0, 'cacheReadTokens': 0, 'cacheWriteTokens': 0}
     cost = 0.0
+    seen = set()  # Claude Code writes one line per content block, each repeating the message usage
     for f in (f for d in project_dirs if d.exists() for f in d.glob('*/*.jsonl')):
         try:
             if datetime.fromtimestamp(f.stat().st_mtime, timezone.utc) < cutoff:
@@ -95,6 +96,10 @@ def scan_claude_usage(cutoff, pricing, project_dirs):
                 u = msg.get('usage')
                 if not isinstance(u, dict):
                     continue
+                key = (msg.get('id'), rec.get('requestId'))
+                if key[0] and key in seen:
+                    continue
+                seen.add(key)
                 inp = int(u.get('input_tokens') or 0)
                 out = int(u.get('output_tokens') or 0)
                 cread = int(u.get('cache_read_input_tokens') or 0)

@@ -33,6 +33,7 @@ def audit(days: int = 7) -> dict:
     cut = time.time() - days * 86400
     sess: dict = defaultdict(lambda: {"turns": 0, "cr_usd": 0.0, "above_usd": 0.0, "max_ctx": 0, "compactions": 0, "cfg": ""})
     turns = above_turns = 0
+    seen = set()  # one transcript line per content block repeats the message usage
     for cfg, root in CONFIGS.items():
         for f in root.glob("*/*.jsonl"):
             try:
@@ -51,10 +52,15 @@ def audit(days: int = 7) -> dict:
                     if '"usage"' not in line or '"assistant"' not in line:
                         continue
                     try:
-                        m = json.loads(line)["message"]
+                        rec = json.loads(line)
+                        m = rec["message"]
                         u = m["usage"]
                     except (ValueError, KeyError, TypeError):
                         continue
+                    key = (m.get("id"), rec.get("requestId"))
+                    if key[0] and key in seen:
+                        continue
+                    seen.add(key)
                     price = next((v for k, v in CACHE_READ_USD.items() if k in str(m.get("model"))), 0.3)
                     cr = int(u.get("cache_read_input_tokens") or 0)
                     ctx = cr + int(u.get("cache_creation_input_tokens") or 0) + int(u.get("input_tokens") or 0)
