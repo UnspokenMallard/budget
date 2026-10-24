@@ -32,6 +32,7 @@ Usage:
 
 import argparse
 import base64
+import importlib.util
 import io
 import json
 import os
@@ -43,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from fafnir import store  # noqa: E402
+from fafnir import ledger, store  # noqa: E402
 
 CHARS_PER_TOKEN = 4  # rough, and only ever used for relative ranking
 # Every config dir that has ever held transcripts. ~/.claude is the archive since the
@@ -417,6 +418,27 @@ def render(data, days):
     return "\n".join(L)
 
 
+def jobs_beside_sessions(days):
+    """Lines putting the ledger's LLM job spend next to all Claude Code spend per account (audit A35, 2026-10-25).
+    Job runs write transcripts under the same config dirs, so interactive spend is the difference."""
+    spec = importlib.util.spec_from_file_location("update_usage", Path(__file__).with_name("update-usage.py"))
+    usage = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(usage)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    pricing = usage.load_config()["pricingUsdPerMTok"]
+    L = [f"## Jobs beside interactive sessions, last {days} days", "",
+         "Estimated from transcripts at list prices. Job runs that leave transcripts in these dirs count in both columns, so Interactive is the difference.", "",
+         "| Account | All Claude Code | LLM jobs (ledger) | Interactive |", "|---|--:|--:|--:|"]
+    for account, dirs in usage.ACCOUNT_DIRS.items():
+        _totals, total = usage.scan_claude_usage(cutoff, pricing, dirs)
+        try:
+            jobs = ledger.job_spend(days, account)[0]
+            L.append(f"| {account} | ${total:,.2f} | ${jobs:,.2f} | ${total - jobs:,.2f} |")
+        except Exception as e:  # noqa: BLE001 - the ledger is in Mimir; the rest of the report still stands
+            L.append(f"| {account} | ${total:,.2f} | unavailable ({type(e).__name__}) | - |")
+    return L + [""]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7)
@@ -426,7 +448,7 @@ def main():
 
     started = time.time()
     data = collect(args.days)
-    report = render(data, args.days)
+    report = render(data, args.days) + "\n" + "\n".join(jobs_beside_sessions(args.days))
 
     if args.stdout:
         print(report)
