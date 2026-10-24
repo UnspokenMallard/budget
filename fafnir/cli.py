@@ -17,11 +17,21 @@ import sys
 from pathlib import Path
 
 from . import brake, ledger, limits
+from ._mimir import records as mr
 
 JOBS = Path(__file__).resolve().parent / "jobs"
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Exit 3 when Mimir does not answer: the ledger lives there (record-job queues and still exits 0)."""
+    try:
+        return _main(argv)
+    except mr.MimirDown as exc:
+        print(f"budget: Mimir unreachable ({exc})")
+        return 3
+
+
+def _main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     scope = "personal"
     for arg in list(argv):

@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fafnir import brake, ledger, limits, quota  # noqa: E402
+from fafnir._mimir import records as mr  # noqa: E402
 from starlette.applications import Starlette  # noqa: E402
 from starlette.middleware import Middleware  # noqa: E402
 from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
@@ -37,6 +38,8 @@ def get(fn):
             return JSONResponse(fn(r))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
+        except mr.MimirDown as e:  # the ledger lives in Mimir: no spend figure is better than a guessed one
+            return JSONResponse({"error": f"Mimir unreachable ({e})"}, status_code=503)
     return endpoint
 
 
@@ -81,7 +84,7 @@ def limits_answer(_r) -> dict:
 
 
 def health(_r) -> dict:
-    return {"ok": True, "db": str(ledger.store.DB_PATH),
+    return {"ok": True, "store": "mimir",
             "brake": {s: brake.engaged(scope=s)[0] for s in ledger.SCOPES},
             "budget": {s: {k: v for k, v in ledger.job_budget(scope=s).items() if k in ("spent", "ceiling", "over")}
                        for s in ledger.SCOPES}}
