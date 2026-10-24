@@ -28,7 +28,7 @@ holds work or files findings. Jarvis asks it and acts: holds the queue, defers a
 | `daemon/quota.py` (`low_headroom`) | `fafnir/quota.py` |
 | `scripts/update-usage.py`, `update_status.py`, `update-usage-job.py` and `usage/` (status.json, usage.json, status-config.json) | `fafnir/usage/`, `state/usage/` |
 | `scripts/run-usage-digest.py`, `scripts/spend-by-effort.py`, the `token-report` handler's work | `fafnir/reports/` |
-| tables `provider_calls`, `job_calls`, `usage_samples` in `jarvis.db` | `state/budget.db` (copied with their rows) |
+| tables `provider_calls`, `job_calls`, `usage_samples` in `jarvis.db` | Mimir telemetry `fafnir.provider_call`, `fafnir.job_call`, `fafnir.usage_sample` (was `state/budget.db`, see Storage in Mimir) |
 | config `[burn]` spend keys, `[llm_jobs]`, `[quota]`, `[limits]` | `~/.budget/config.toml` |
 
 Stays in Jarvis: the stuck-event and repeated-failure detectors (they read Jarvis's own event
@@ -106,3 +106,22 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
   `brake_after_consecutive_windows` windows engages the brake; `max_calls_per_window` over its limit only
   warns (finding tag `BURN-CALLS:`, key `burn:calls:<scope>`, which the brake ignores). Restart the daemon
   (`~/.jarvis/restart.sh`) to load it: Fafnir modules are not hot-reloaded.
+
+## Storage in Mimir (2026-10-24)
+
+Mimir is the only store (RECORDS-DESIGN.md in `~/.mind`). Fafnir opens no SQLite file. Files stay only for
+operational state: the brake and limit flag files, `state/usage/`, `state/reports/`.
+
+- Ledger: telemetry streams `fafnir.provider_call`, `fafnir.job_call` and `fafnir.usage_sample`. Retention is
+  Mimir's 90 days (was 30 for calls and samples); there is no prune job. The read side (`call_rate`, `job_spend`,
+  `wasted_spend`, `job_spend_by_job`) sums in Python over `mr.query`.
+- Telemetry is append-only, so a job refusing the output of a call that succeeded is its own row,
+  `fafnir.job_reject {job_uid, reason}`, joined to the call by uid at read time. `record_job` now returns that uid
+  (a string, was a row id).
+- Meta (brake counters and the like): records `fafnir.meta`, key = name.
+- Writes are queued in the local outbox and replayed when Mimir is back, so `record_job`, `record_call` and
+  `sample_usage` never fail the caller. Reads raise `MimirDown`: the CLI prints "Mimir unreachable" and exits 3,
+  the service answers 503, `job-budget` exits 2 (the gate refuses rather than spend unmetered).
+- `/health` reports `"store": "mimir"` instead of the database path.
+- Cutover: `~/.mind/tools/import-records.py fafnir` copies `budget.db` (old rows have no uid and may have no
+  reason), checks counts, and renames it `budget.db.archived-2026-10-24`.

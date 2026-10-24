@@ -10,7 +10,7 @@ Earliest-useful dates, not deadlines; being late costs nothing.
 
 | When | Step | Waits on |
 |---|---|---|
-| 2026-10-18 08:00 | the night's jobs recorded into `state/budget.db` (`budget report`: LLM jobs 7d grew), `usage-refresh` hourly fresh, no `handler-failed` for `burn-check`, `usage-refresh`, `spend-by-effort` (Mon) | the first night |
+| 2026-10-18 08:00 | the night's jobs recorded into Mimir (`budget report`: LLM jobs 7d grew), `usage-refresh` hourly fresh, no `handler-failed` for `burn-check`, `usage-refresh`, `spend-by-effort` (Mon) | the first night |
 | after that check, Anze | drop `provider_calls`, `job_calls`, `usage_samples` from `~/.jarvis/jarvis.db` and delete `~/.jarvis/jarvis.db.bak-budget` | Anze's confirmation |
 
 ## Audit 2026-10-21: your items
@@ -50,7 +50,7 @@ covers these rows too. The rule stays: this component measures or knows; Jarvis 
 
 ## C: something is broken
 
-> Budget is broken. First, do not delete `state/budget.db` or a brake/limit file to "reset" it:
-> they are the evidence. Copy the db with `sqlite3 .backup`, read `state/logs/server.log` and
+> Budget is broken. First, do not delete `state/budget.db.archived-2026-10-24` or a brake/limit file to "reset" it:
+> they are the evidence. Check `budget report` and `mimirrecords.pending('fafnir')` (an outbox that does not drain means Mimir is down), read `state/logs/server.log` and
 > the daemon log, run `~/.budget/.venv/bin/python ~/.budget/tests/test_fafnir.py`, and report
 > before fixing.
