@@ -1,39 +1,25 @@
-"""Fafnir's store: state/budget.db (WAL), state files, config.toml.
+"""Fafnir's store: state files and config.toml. Fafnir keeps no database of its own: the ledger is
+telemetry in Mimir (`fafnir.*` streams) and the small counters are `fafnir.meta` records.
 
 Paths are module attributes read at call time, so a test points them at a scratch directory
-(`store.ROOT`, `store.STATE`, `store.DB_PATH`, `store.CONFIG`) the way Jarvis's selftest does
-with `core.ROOT`. Stdlib only: imported by Jarvis's venv, Mimir's venv and Fafnir's own.
+(`store.ROOT`, `store.STATE`, `store.CONFIG`) the way Jarvis's selftest does with `core.ROOT`.
+Stdlib only: imported by Jarvis's venv, Mimir's venv and Fafnir's own.
 """
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
-import sqlite3
 import tomllib
 from pathlib import Path
 
+from ._mimir import records as mr
+
 ROOT = Path(os.environ.get("FAFNIR_HOME", Path.home() / ".budget"))
 STATE = ROOT / "state"
-DB_PATH = STATE / "budget.db"
 CONFIG = ROOT / "config.toml"
+SOURCE = "fafnir"
+META = "fafnir.meta"
 log = logging.getLogger("fafnir")
-
-_META = "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-
-
-@contextlib.contextmanager
-def connect():
-    """`with connect() as conn:` commits or rolls back, and always closes (one handle per call)."""
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    try:
-        with conn:
-            yield conn
-    finally:
-        conn.close()
 
 
 def load_config() -> dict:
@@ -46,14 +32,10 @@ def load_config() -> dict:
 
 
 def set_meta(key: str, value: str) -> None:
-    with connect() as conn:
-        conn.execute(_META)
-        conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                     (key, value))
+    mr.put(SOURCE, META, key, {"value": value})
 
 
 def get_meta(key: str) -> str | None:
-    with connect() as conn:
-        conn.execute(_META)
-        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else None
+    """Raises mimirrecords.MimirDown when Mimir does not answer."""
+    row = mr.get(META, key, source=SOURCE)
+    return row["value"] if row else None

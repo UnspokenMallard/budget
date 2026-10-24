@@ -13,30 +13,23 @@ Brain escalations are recorded here like every other call (brain keeps its own `
 jarvis.db only for its caps). Until 2026-10-17 the burn rate added `brain_calls` on top of
 `provider_calls`, which already held the same rows, so every brain call counted twice.
 
-Recording never raises into the caller: metering must not break the work it measures.
+Recording never raises into the caller: metering must not break the work it measures. The rows are
+Mimir telemetry (append-only, kept 90 days): a write goes through Mimir's outbox, so it survives
+Mimir being down. A rejection is its own row (`fafnir.job_reject`), joined to its job call when read.
+Reading raises `mimirrecords.MimirDown` when Mimir does not answer: a ceiling must not be guessed.
 """
 from __future__ import annotations
 
 import json
 import time
+import uuid
 from typing import Any, Mapping
 
 from . import store
-from .store import log
+from .store import log, mr
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS provider_calls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, surface TEXT NOT NULL, model TEXT,
-    ok INTEGER NOT NULL, duration_s REAL, cost_usd REAL, detail TEXT, scope TEXT NOT NULL DEFAULT 'personal');
-CREATE INDEX IF NOT EXISTS idx_provider_calls_ts ON provider_calls(ts);
-CREATE TABLE IF NOT EXISTS usage_samples (
-    ts REAL NOT NULL PRIMARY KEY, five_hour_tokens INTEGER, seven_day_tokens INTEGER, est_cost_usd REAL,
-    scope TEXT NOT NULL DEFAULT 'personal');
-CREATE TABLE IF NOT EXISTS job_calls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, job TEXT NOT NULL, model TEXT,
-    ok INTEGER NOT NULL, duration_s REAL, cost_usd REAL, detail TEXT, scope TEXT NOT NULL DEFAULT 'personal');
-CREATE INDEX IF NOT EXISTS idx_job_calls_ts ON job_calls(ts);
-"""
+SOURCE = store.SOURCE
+CALLS, JOBS, SAMPLES, REJECTS = "fafnir.provider_call", "fafnir.job_call", "fafnir.usage_sample", "fafnir.job_reject"
 
 SCOPES = ("personal", "work")
 # Kept equal to config.toml's value, so a missing key can never raise the ceiling.
@@ -49,18 +42,11 @@ def usage_dir():
     return store.STATE / "usage"
 
 
-# Added 2026-10-22 (T6): `ok` means only "the call succeeded"; `reason` says why a row was wasted
-# (the subtype of a failed call, or why the job rejected the output), `attempt` is the retry number.
-_JOB_COLUMNS = (("reason", "TEXT"), ("attempt", "INTEGER"))
-
-
-def ensure_schema() -> None:
-    with store.connect() as conn:
-        conn.executescript(_SCHEMA)
-        have = {r[1] for r in conn.execute("PRAGMA table_info(job_calls)")}
-        for col, kind in _JOB_COLUMNS:
-            if col not in have:
-                conn.execute(f"ALTER TABLE job_calls ADD COLUMN {col} {kind}")
+def _rows(stream: str, since: float, scope: str | None = None) -> list[dict]:
+    """The data of the stream's rows since `since`, each with `ts` (a call's time). Raises MimirDown.
+    shortcut: 5000 rows per read covers days of calls at today's rate, page it if that ever changes."""
+    where = None if scope is None else "scope:" + json.dumps(scope)
+    return [{**r["data"], "ts": r["at"]} for r in mr.query(stream=stream, since=since, where=where, limit=5000, source=SOURCE)]
 
 
 def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
@@ -74,30 +60,26 @@ def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
 
 
 def record_job(job: str, ok: bool, duration_s: float, cost_usd: float | None = None, model: str = "",
-               detail: str = "", scope: str = "personal", reason: str = "", attempt: int | None = None) -> int | None:
-    """Record one nightly-job run and return its row id (None when it could not be written).
+               detail: str = "", scope: str = "personal", reason: str = "", attempt: int | None = None) -> str | None:
+    """Record one nightly-job run and return its id (None when it could not be written).
     `ok` is only "the call succeeded"; `reason` is why the row was wasted. Never raises into the caller."""
     try:
-        ensure_schema()
-        with store.connect() as conn:
-            return conn.execute(
-                "INSERT INTO job_calls(ts, job, model, ok, duration_s, cost_usd, detail, scope, reason, attempt) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (time.time(), job, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope,
-                 reason[:200], attempt)).lastrowid
+        now, uid = time.time(), uuid.uuid4().hex
+        mr.append(SOURCE, JOBS, {"uid": uid, "job": job, "model": model, "ok": 1 if ok else 0, "duration_s": duration_s,
+                                 "cost_usd": cost_usd, "detail": detail[:500], "scope": scope, "reason": reason[:200],
+                                 "attempt": attempt}, at=now, uid=uid)
+        return uid
     except Exception as exc:  # noqa: BLE001
         log.debug("fafnir: could not record job %s: %s", job, exc)
         return None
 
 
-def reject_job(row_id: int | None, reason: str) -> None:
+def reject_job(row_id: str | None, reason: str) -> None:
     """A job refused the output of a call that succeeded: the row stays `ok`, its spend turns wasted."""
     if row_id is None:
         return
     try:
-        ensure_schema()
-        with store.connect() as conn:
-            conn.execute("UPDATE job_calls SET reason = ? WHERE id = ?", (reason[:200], row_id))
+        mr.append(SOURCE, REJECTS, {"job_uid": row_id, "reason": reason[:200]})
     except Exception as exc:  # noqa: BLE001
         log.debug("fafnir: could not mark job row %s rejected: %s", row_id, exc)
 
@@ -106,11 +88,8 @@ def record_call(surface: str, ok: bool, duration_s: float, cost_usd: float | Non
                 detail: str = "", scope: str = "personal") -> None:
     """Record one provider call. Never raises into the caller."""
     try:
-        ensure_schema()
-        with store.connect() as conn:
-            conn.execute("INSERT INTO provider_calls(ts, surface, model, ok, duration_s, cost_usd, detail, scope) "
-                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                         (time.time(), surface, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope))
+        mr.append(SOURCE, CALLS, {"surface": surface, "model": model, "ok": 1 if ok else 0, "duration_s": duration_s,
+                                  "cost_usd": cost_usd, "detail": detail[:500], "scope": scope})
     except Exception as exc:  # noqa: BLE001
         log.debug("fafnir: could not record %s call: %s", surface, exc)
 
@@ -125,7 +104,6 @@ def _read(path) -> dict:
 def sample_usage() -> dict | None:
     """Snapshot the host usage counters (state/usage/status.json and usage.json are overwritten in
     place on every refresh, so this is their only history). One row per account."""
-    ensure_schema()
     status, usage = _read(usage_dir() / "status.json"), _read(usage_dir() / "usage.json")
     by_account = (usage.get("claude") or {}).get("byAccount") or {}
     now = time.time()
@@ -137,15 +115,10 @@ def sample_usage() -> dict | None:
             usage_cost.get("estimatedCostUsd")
         if five is None and seven is None and cost is None:
             continue
-        # ts is the primary key: the work row is nudged by a microsecond
-        rows.append({"ts": now + (0.000001 if scope == "work" else 0), "scope": scope,
-                     "five_hour_tokens": five, "seven_day_tokens": seven, "est_cost_usd": cost})
+        rows.append({"ts": now, "scope": scope, "five_hour_tokens": five, "seven_day_tokens": seven, "est_cost_usd": cost})
     try:
-        with store.connect() as conn:
-            for r in rows:
-                conn.execute("INSERT OR REPLACE INTO usage_samples(ts, five_hour_tokens, seven_day_tokens, est_cost_usd, scope) "
-                             "VALUES(?, ?, ?, ?, ?)",
-                             (r["ts"], r["five_hour_tokens"], r["seven_day_tokens"], r["est_cost_usd"], r["scope"]))
+        for r in rows:
+            mr.append(SOURCE, SAMPLES, {k: v for k, v in r.items() if k != "ts"}, at=now)
     except Exception as exc:  # noqa: BLE001
         log.debug("fafnir: could not record usage sample: %s", exc)
     return rows[0] if rows else None
@@ -154,40 +127,37 @@ def sample_usage() -> dict | None:
 def call_rate(window_s: int, scope: str | None = None, exclude: tuple[str, ...] = ()) -> tuple[int, float]:
     """(calls, total known spend) recorded inside the window; `scope` None sums both accounts.
     `exclude` surface prefixes drop out of the call count only; spend still sums every row."""
-    ensure_schema()
-    cutoff = time.time() - window_s
-    extra, args = ("", (cutoff,)) if scope is None else (" AND scope = ?", (cutoff, scope))
-    counted = " AND ".join(["surface NOT LIKE ? || '%'"] * len(exclude)) or "1"
-    with store.connect() as conn:
-        calls, spend = conn.execute(
-            f"SELECT COALESCE(SUM({counted}), 0), COALESCE(SUM(cost_usd), 0) FROM provider_calls WHERE ts >= ?{extra}",
-            (*exclude, *args)).fetchone()
-    return int(calls), float(spend)
+    rows = _rows(CALLS, time.time() - window_s, scope)
+    return (sum(1 for d in rows if not str(d.get("surface") or "").startswith(exclude)),
+            float(sum(d.get("cost_usd") or 0 for d in rows)))
 
 
 def job_spend(days: float = 7, scope: str | None = None) -> tuple[float, int]:
     """(known spend, runs) of the nightly LLM jobs in the trailing window."""
-    ensure_schema()
-    cutoff = time.time() - days * 86400
-    extra, args = ("", (cutoff,)) if scope is None else (" AND scope = ?", (cutoff, scope))
-    with store.connect() as conn:
-        spend, runs = conn.execute(
-            f"SELECT COALESCE(SUM(cost_usd), 0), COUNT(*) FROM job_calls WHERE ts >= ?{extra}", args).fetchone()
-    return float(spend), int(runs)
+    rows = _rows(JOBS, time.time() - days * 86400, scope)
+    return float(sum(d.get("cost_usd") or 0 for d in rows)), len(rows)
 
 
-# A row is wasted when the call failed or a job rejected its output; a retried attempt failed, so it is in.
-_WASTED = "(ok = 0 OR COALESCE(reason, '') <> '')"
+def _jobs_with_waste(days: float) -> list[tuple[dict, bool, bool]]:
+    """Each job call in the window with whether it is wasted and whether a job rejected its output.
+    A row is wasted when the call failed or a job rejected its output; a retried attempt failed, so it is in."""
+    since = time.time() - days * 86400
+    rejected = {d["job_uid"] for d in _rows(REJECTS, since) if d.get("job_uid")}
+    out = []
+    for d in _rows(JOBS, since):
+        rejects = bool(d.get("ok")) and (bool(d.get("reason")) or d.get("uid") in rejected)
+        out.append((d, not d.get("ok") or bool(d.get("reason")) or d.get("uid") in rejected, rejects))
+    return out
 
 
 def wasted_spend(days: float = 7) -> list[dict]:
     """Per job in the trailing window: rows that failed, were retried or were rejected, and their known cost."""
-    ensure_schema()
-    with store.connect() as conn:
-        rows = conn.execute(
-            f"SELECT job, COUNT(*), ROUND(COALESCE(SUM(cost_usd), 0), 2) FROM job_calls WHERE ts >= ? AND {_WASTED} "
-            "GROUP BY job HAVING COUNT(*) > 0 ORDER BY 3 DESC", (time.time() - days * 86400,)).fetchall()
-    return [{"job": j, "rows": n, "usd": usd} for j, n, usd in rows]
+    per_job: dict[str, list] = {}
+    for d, wasted, _ in _jobs_with_waste(days):
+        if wasted:
+            per_job.setdefault(d["job"], []).append(d.get("cost_usd") or 0)
+    rows = [{"job": job, "rows": len(costs), "usd": round(sum(costs), 2)} for job, costs in per_job.items()]
+    return sorted(rows, key=lambda r: -r["usd"])
 
 
 def wasted_line(days: int = 7) -> str:
@@ -202,16 +172,19 @@ def wasted_line(days: int = 7) -> str:
 def job_spend_by_job() -> list[dict]:
     """Per job over 30 days: scope(s), runs and known spend in 7 and 30 days, failed runs, rejected runs.
     For Jarvis's job-value review and the HUD's Job value panel."""
-    ensure_schema()
     week = time.time() - 7 * 86400
-    with store.connect() as conn:
-        rows = conn.execute(
-            "SELECT job, GROUP_CONCAT(DISTINCT scope), SUM(ts >= ?), ROUND(SUM(CASE WHEN ts >= ? THEN cost_usd ELSE 0 END), 2), "
-            "COUNT(*), ROUND(SUM(cost_usd), 2), SUM(ok = 0), SUM(ok = 1 AND COALESCE(reason, '') <> '') "
-            "FROM job_calls WHERE ts >= ? GROUP BY job ORDER BY 6 DESC",
-            (week, week, time.time() - 30 * 86400)).fetchall()
-    keys = ("job", "scope", "runs7", "usd7", "runs30", "usd30", "failed30", "rejected30")
-    return [dict(zip(keys, r)) for r in rows]
+    per_job: dict[str, list] = {}
+    for d, _, rejects in _jobs_with_waste(30):
+        per_job.setdefault(d["job"], []).append((d, rejects))
+    out = []
+    for job, rows in per_job.items():
+        costs = [d["cost_usd"] for d, _ in rows if d.get("cost_usd") is not None]
+        recent = [d for d, _ in rows if d["ts"] >= week]
+        out.append({"job": job, "scope": ",".join(sorted({d["scope"] for d, _ in rows})), "runs7": len(recent),
+                    "usd7": round(sum(d.get("cost_usd") or 0 for d in recent), 2), "runs30": len(rows),
+                    "usd30": round(sum(costs), 2) if costs else None, "failed30": sum(1 for d, _ in rows if not d.get("ok")),
+                    "rejected30": sum(1 for _, rejects in rows if rejects)})
+    return sorted(out, key=lambda r: -(r["usd30"] or 0))
 
 
 def five_hour_tokens(scope: str = "personal") -> float | None:
@@ -275,17 +248,6 @@ def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]
             out.append((f"burn:spend:{scope}", f"{burn_tag(scope)} the daemon spent ${spend:.2f} on the {scope} account "
                                                 f"in {window // 60} min, over the limit of ${max_spend:.2f}"))
     return out
-
-
-def prune(retain_days: int = 30) -> int:
-    ensure_schema()
-    cutoff = time.time() - retain_days * 86400
-    with store.connect() as conn:
-        dropped = conn.execute("DELETE FROM provider_calls WHERE ts < ?", (cutoff,)).rowcount
-        conn.execute("DELETE FROM usage_samples WHERE ts < ?", (cutoff,))
-        # longer: the weekly ceiling needs 7 days, and last quarter's job cost is asked after the fact
-        conn.execute("DELETE FROM job_calls WHERE ts < ?", (time.time() - 90 * 86400,))
-    return dropped
 
 
 def report_lines(cfg: Mapping[str, Any] | None = None) -> list[str]:
