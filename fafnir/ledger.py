@@ -86,7 +86,7 @@ def record_job(job: str, ok: bool, duration_s: float, cost_usd: float | None = N
                 (time.time(), job, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope,
                  reason[:200], attempt)).lastrowid
     except Exception as exc:  # noqa: BLE001
-        log.debug("budget: could not record job %s: %s", job, exc)
+        log.debug("fafnir: could not record job %s: %s", job, exc)
         return None
 
 
@@ -99,7 +99,7 @@ def reject_job(row_id: int | None, reason: str) -> None:
         with store.connect() as conn:
             conn.execute("UPDATE job_calls SET reason = ? WHERE id = ?", (reason[:200], row_id))
     except Exception as exc:  # noqa: BLE001
-        log.debug("budget: could not mark job row %s rejected: %s", row_id, exc)
+        log.debug("fafnir: could not mark job row %s rejected: %s", row_id, exc)
 
 
 def record_call(surface: str, ok: bool, duration_s: float, cost_usd: float | None = None, model: str = "",
@@ -112,7 +112,7 @@ def record_call(surface: str, ok: bool, duration_s: float, cost_usd: float | Non
                          "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                          (time.time(), surface, model, 1 if ok else 0, duration_s, cost_usd, detail[:500], scope))
     except Exception as exc:  # noqa: BLE001
-        log.debug("budget: could not record %s call: %s", surface, exc)
+        log.debug("fafnir: could not record %s call: %s", surface, exc)
 
 
 def _read(path) -> dict:
@@ -147,7 +147,7 @@ def sample_usage() -> dict | None:
                              "VALUES(?, ?, ?, ?, ?)",
                              (r["ts"], r["five_hour_tokens"], r["seven_day_tokens"], r["est_cost_usd"], r["scope"]))
     except Exception as exc:  # noqa: BLE001
-        log.debug("budget: could not record usage sample: %s", exc)
+        log.debug("fafnir: could not record usage sample: %s", exc)
     return rows[0] if rows else None
 
 

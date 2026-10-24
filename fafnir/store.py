@@ -1,8 +1,8 @@
-"""Budget's store: state/budget.db (WAL), state files, config.toml.
+"""Fafnir's store: state/budget.db (WAL), state files, config.toml.
 
 Paths are module attributes read at call time, so a test points them at a scratch directory
 (`store.ROOT`, `store.STATE`, `store.DB_PATH`, `store.CONFIG`) the way Jarvis's selftest does
-with `core.ROOT`. Stdlib only: imported by Jarvis's venv, Mind's venv and Budget's own.
+with `core.ROOT`. Stdlib only: imported by Jarvis's venv, Mimir's venv and Fafnir's own.
 """
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ import sqlite3
 import tomllib
 from pathlib import Path
 
-ROOT = Path(os.environ.get("BUDGET_HOME", Path.home() / ".budget"))
+ROOT = Path(os.environ.get("FAFNIR_HOME", Path.home() / ".budget"))
 STATE = ROOT / "state"
 DB_PATH = STATE / "budget.db"
 CONFIG = ROOT / "config.toml"
-log = logging.getLogger("budget")
+log = logging.getLogger("fafnir")
 
 _META = "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
 

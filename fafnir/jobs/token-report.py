@@ -1,7 +1,7 @@
 #!/Users/anzes/.budget/.venv/bin/python
 """Token attribution report for Claude Code sessions (`budget token-report`, Jarvis job `token-report`).
 
-Copied into Budget from ~/.claude-personal/scripts/token-report.py on 2026-10-18 (that copy stays:
+Copied into Fafnir from ~/.claude-personal/scripts/token-report.py on 2026-10-18 (that copy stays:
 the tool-telemetry hook borrows its image-cost helper). As a job it writes
 state/reports/token-attribution/<date>-token-attribution.md and the receipt state/jobs/token-report.json,
 the work Jarvis's `token-report` handler did around the old script.
@@ -43,7 +43,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from budget import store  # noqa: E402
+from fafnir import store  # noqa: E402
 
 CHARS_PER_TOKEN = 4  # rough, and only ever used for relative ranking
 # Every config dir that has ever held transcripts. ~/.claude is the archive since the

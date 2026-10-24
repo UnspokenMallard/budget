@@ -1,3 +1,3 @@
 #!/bin/zsh
-# Budget's CLI (budget/cli.py): spend ledger, ceilings, limits, usage.
-exec $HOME/.budget/.venv/bin/python -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from budget.cli import main; sys.exit(main())' $HOME/.budget "$@"
+# Fafnir's CLI (fafnir/cli.py): spend ledger, ceilings, limits, usage.
+exec $HOME/.budget/.venv/bin/python -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from fafnir.cli import main; sys.exit(main())' $HOME/.budget "$@"

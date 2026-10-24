@@ -1,5 +1,5 @@
-# Budget config (moved from ~/.jarvis/config.toml on 2026-10-17, comments kept; paths in them
-# that say usage/ or burn.py now mean ~/.budget/state/usage/ and budget/ledger.py).
+# Fafnir config (moved from ~/.jarvis/config.toml on 2026-10-17, comments kept; paths in them
+# that say usage/ or burn.py now mean ~/.budget/state/usage/ and fafnir/ledger.py).
 
 [limits]
 # Phase 6 step 2: a provider usage limit is a defer, not a failure. See

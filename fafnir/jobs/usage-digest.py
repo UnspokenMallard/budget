@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from budget import ledger, store  # noqa: E402
+from fafnir import ledger, store  # noqa: E402
 
 HEADER = ["Date", "Claude 5h tokens", "Claude 7d tokens", "Claude est. cost (USD)", "Cursor used %", "Note"]
 

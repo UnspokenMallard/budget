@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Budget server (~/.budget/server/app.py): the spend ledger API on 127.0.0.1:3025.
+<!-- Fafnir server (~/.budget/server/app.py): the spend ledger API on 127.0.0.1:3025.
      Installed as ~/Library/LaunchAgents/com.budget.server.plist by ~/.budget/bin/install-launchd. -->
 <plist version="1.0">
 <dict>

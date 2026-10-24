@@ -1,10 +1,10 @@
-"""Budget's HTTP service on 127.0.0.1:3025 (launchd com.budget.server), for callers that are not
+"""Fafnir's HTTP service on 127.0.0.1:3025 (launchd com.budget.server), for callers that are not
 Python on this Mac: the HUD records its `claude -p` calls here and reads the gate, the limits and
-job spend. Python callers import the `budget` library directly (same code, same store).
+job spend. Python callers import the `fafnir` library directly (same code, same store).
 
 Localhost only: the host check refuses DNS rebinding, and a write carrying an Origin header (any
 browser page) is refused, so no web page can write to the ledger through Anze's browser.
-Budget measures and answers; it never alerts or holds work.
+Fafnir measures and answers; it never alerts or holds work.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from budget import brake, ledger, limits, quota  # noqa: E402
+from fafnir import brake, ledger, limits, quota  # noqa: E402
 from starlette.applications import Starlette  # noqa: E402
 from starlette.middleware import Middleware  # noqa: E402
 from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402

@@ -1,4 +1,4 @@
-# Budget
+# Fafnir (Budget)
 
 What model work costs and whether more may start: the spend ledger, the ceilings, usage-limit
 windows, quota headroom and the burn brake's decision. Split out of Jarvis on 2026-10-17 so
@@ -9,13 +9,13 @@ Jarvis is an orchestrator (Anze: "I want Jarvis to be an orchestrator").
 | Question | Decision |
 |---|---|
 | Home | `~/.budget`, own git repo, code and `state/` together, own venv (like `~/.mind`) |
-| Schedule | Jarvis triggers; Budget has no timers. Jarvis's scheduler calls Budget's CLI or API |
+| Schedule | Jarvis triggers; Fafnir has no timers. Jarvis's scheduler calls Fafnir's CLI or API |
 | Process | HTTP service on `127.0.0.1:3025` (launchd `com.budget.server`): many callers ask it live |
-| Sessions | Designed with Sentinel, Herald and Forge; Budget built first, in the same session |
+| Sessions | Designed with Heimdall, Hermod and Brokkr; Fafnir built first, in the same session |
 
 ## Boundary
 
-Budget **measures and answers**: what was spent, by whom, against which ceiling; is a provider
+Fafnir **measures and answers**: what was spent, by whom, against which ceiling; is a provider
 in a usage-limit window; is there headroom; should the brake be on. It never notifies, pings,
 holds work or files findings. Jarvis asks it and acts: holds the queue, defers a job, alerts.
 
@@ -23,11 +23,11 @@ holds work or files findings. Jarvis asks it and acts: holds the queue, defers a
 
 | From Jarvis | Here |
 |---|---|
-| `daemon/burn.py` metering: `record_job`, `record_call`, `sample_usage`, `call_rate`, `job_spend`, `five_hour_tokens`, `job_budget`, the burn-rate findings, the brake state and its consecutive-window count | `budget/ledger.py`, `budget/brake.py` |
-| `daemon/limits.py` (a usage limit is a defer, not a failure: detection, windows, observed ceilings) | `budget/limits.py` |
-| `daemon/quota.py` (`low_headroom`) | `budget/quota.py` |
-| `scripts/update-usage.py`, `update_status.py`, `update-usage-job.py` and `usage/` (status.json, usage.json, status-config.json) | `budget/usage/`, `state/usage/` |
-| `scripts/run-usage-digest.py`, `scripts/spend-by-effort.py`, the `token-report` handler's work | `budget/reports/` |
+| `daemon/burn.py` metering: `record_job`, `record_call`, `sample_usage`, `call_rate`, `job_spend`, `five_hour_tokens`, `job_budget`, the burn-rate findings, the brake state and its consecutive-window count | `fafnir/ledger.py`, `fafnir/brake.py` |
+| `daemon/limits.py` (a usage limit is a defer, not a failure: detection, windows, observed ceilings) | `fafnir/limits.py` |
+| `daemon/quota.py` (`low_headroom`) | `fafnir/quota.py` |
+| `scripts/update-usage.py`, `update_status.py`, `update-usage-job.py` and `usage/` (status.json, usage.json, status-config.json) | `fafnir/usage/`, `state/usage/` |
+| `scripts/run-usage-digest.py`, `scripts/spend-by-effort.py`, the `token-report` handler's work | `fafnir/reports/` |
 | tables `provider_calls`, `job_calls`, `usage_samples` in `jarvis.db` | `state/budget.db` (copied with their rows) |
 | config `[burn]` spend keys, `[llm_jobs]`, `[quota]`, `[limits]` | `~/.budget/config.toml` |
 
@@ -50,7 +50,7 @@ Service, JSON:
 - `POST /run/{usage-refresh|usage-digest|spend-by-effort|token-report}` (Jarvis's jobs call these)
 - `GET /report`
 
-Python callers on this Mac (Jarvis's daemon and scripts, Mind's jobs) import the `budget`
+Python callers on this Mac (Jarvis's daemon and scripts, Mimir's jobs) import the `budget`
 library directly (stdlib only; `~/.budget` on `sys.path` through `core.py` and `jobcommon.py`):
 same code, same store, no network hop, so recording cannot fail on the service being down. The
 HUD uses the service over HTTP. CLI `bin/budget` keeps the old `burn.py` CLI contract
@@ -60,7 +60,7 @@ Jarvis's jobs call `bin/budget-job.sh <subcommand>` (`usage-refresh`, `spend-by-
 ## Failure semantics (kept from burn.py and limits.py)
 
 - Recording never raises into the caller (the library catches; the HUD's POST is fire and
-  forget, so Budget down loses that one HUD row).
+  forget, so Fafnir down loses that one HUD row).
 - The job budget gate is three-valued: "could not check" is its own answer, and an optional
   job refuses to start on it rather than guessing.
 - The brake, a limit window and quota headroom fail open (unknown = not braked, not blocked,
@@ -70,31 +70,31 @@ Jarvis's jobs call `bin/budget-job.sh <subcommand>` (`usage-refresh`, `spend-by-
 
 One cutover, no compatibility shims: back up `jarvis.db`; copy the three tables with their rows;
 move `usage/` and the limit/brake state files; switch every caller (daemon modules, handlers,
-scripts, `jobcommon.py`, HUD `ledger.js`/`quota.js`/`jobvalue.js`, Mind's sleep and jobs, the
+scripts, `jobcommon.py`, HUD `ledger.js`/`quota.js`/`jobvalue.js`, Mimir's sleep and jobs, the
 `/quota` skill); repoint the five jobs; drop the old tables only after Anze confirms. Selftest,
-HUD tests and Mind tests must pass before and after.
+HUD tests and Mimir tests must pass before and after.
 
 ## As built (2026-10-17)
 
 Ledger note (Gateway, 2026-10-17/18): every model call is recorded by `~/.gateway` now. `provider_calls.surface` carries the
-Gateway surface name: brain's rows are `escalation`, `inbound-task-triage`, `inbound-message-triage`, `inbound-draft`,
+Bifrost surface name: brain's rows are `escalation`, `inbound-task-triage`, `inbound-message-triage`, `inbound-draft`,
 `report-narrate`, `originate` (they were all `work` before), plus `criteria-score` (now with a cost), `hud-*`, `mind-improve-*`
-and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are recorded by Gateway (`limits.record`).
+and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are recorded by Bifrost (`limits.record`).
 
-- `budget/store.py` (paths from `BUDGET_HOME`, default `~/.budget`; tests set it to scratch),
+- `fafnir/store.py` (paths from `FAFNIR_HOME`, default `~/.budget`; tests set it to scratch),
   `ledger.py`, `brake.py`, `limits.py`, `quota.py`, `cli.py`, `jobs/` (usage refresh,
   spend-by-effort), `server/app.py` (launchd `com.budget.server`), `config.toml`, `pricing.json`
-  (was `~/.jarvis/config.json`), `tests/test_budget.py`.
+  (was `~/.jarvis/config.json`), `tests/test_fafnir.py`.
 - Moved with their rows: `provider_calls` (86), `job_calls` (260), `usage_samples` (3,831), and
   `usage/`, `logs/limit-hits/`. The old tables are still in `jarvis.db`, unused, until Anze
   confirms dropping them; backup `~/.jarvis/jarvis.db.bak-budget` deleted 2026-10-18.
 - Fixed on the way: brain's calls were counted twice by the burn rate and by the review ledger's
   "scoring" line (both added `brain_calls` to `provider_calls`, which already held them).
-- `usage-digest` split 2026-10-18: `budget usage-digest` (`budget/jobs/usage-digest.py`) builds
+- `usage-digest` split 2026-10-18: `budget usage-digest` (`fafnir/jobs/usage-digest.py`) builds
   today's row from `state/usage/` into `state/reports/usage-digest/<date>.json` and `latest.json`;
   Jarvis's `run-usage-digest.py` (job `usage-digest`, one job) runs it first, then posts that row to
   Notion (an outward action: Jarvis's).
-- `token-report` moved 2026-10-18: `budget token-report` (`budget/jobs/token-report.py`, a copy of
+- `token-report` moved 2026-10-18: `budget token-report` (`fafnir/jobs/token-report.py`, a copy of
   `~/.claude-personal/scripts/token-report.py`, which stays for the tool-telemetry hook) writes
   `state/reports/token-attribution/<date>-token-attribution.md` and the receipt
   `state/jobs/token-report.json`; Jarvis's job `token-report` calls it through `budget-job.sh`.
@@ -105,4 +105,4 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
 - Brake on spend only (2026-10-19, proactive-agent step 3): `max_spend_usd_per_window` over its limit for
   `brake_after_consecutive_windows` windows engages the brake; `max_calls_per_window` over its limit only
   warns (finding tag `BURN-CALLS:`, key `burn:calls:<scope>`, which the brake ignores). Restart the daemon
-  (`~/.jarvis/restart.sh`) to load it: Budget modules are not hot-reloaded.
+  (`~/.jarvis/restart.sh`) to load it: Fafnir modules are not hot-reloaded.

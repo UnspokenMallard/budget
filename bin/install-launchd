@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Install (or reinstall) Budget's launchd agents from ~/.budget/launchd. `install-launchd status` shows them.
+# Install (or reinstall) Fafnir's launchd agents from ~/.budget/launchd. `install-launchd status` shows them.
 set -eu
 DIR=$HOME/.budget/launchd
 AGENTS=$HOME/Library/LaunchAgents

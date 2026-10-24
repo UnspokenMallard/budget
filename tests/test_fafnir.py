@@ -1,6 +1,6 @@
-"""Budget against a scratch store: ledger and ceilings, the brake decision, usage limits, the
+"""Fafnir against a scratch store: ledger and ceilings, the brake decision, usage limits, the
 service's answers and its write guard, and the CLI exit codes job scripts rely on.
-Run: ~/.budget/.venv/bin/python ~/.budget/tests/test_budget.py"""
+Run: ~/.budget/.venv/bin/python ~/.budget/tests/test_fafnir.py"""
 import json
 import os
 import subprocess
@@ -9,13 +9,13 @@ import tempfile
 import time
 from pathlib import Path
 
-TMP = Path(tempfile.mkdtemp(prefix="budget-test-"))
-os.environ["BUDGET_HOME"] = str(TMP)  # read at import: never the live store
+TMP = Path(tempfile.mkdtemp(prefix="fafnir-test-"))
+os.environ["FAFNIR_HOME"] = str(TMP)  # read at import: never the live store
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "server"))
 
-from budget import brake, ledger, limits, store  # noqa: E402
+from fafnir import brake, ledger, limits, store  # noqa: E402
 
 CFG = {"llm_jobs": {"weekly_budget_usd": 10.0, "daily_budget_usd": 6.0},
        "burn": {"max_calls_per_window": 2, "max_spend_usd_per_window": 1.0, "brake_after_consecutive_windows": 2, "brake_clears_after_s": 1}}
@@ -122,7 +122,7 @@ def test_service_and_cli():
     assert c.post("/record/call", json={}).status_code == 400
     assert TestClient(app.app, base_url="http://evil.example").get("/health").status_code == 400
     cli = [str(ROOT / "bin" / "budget")]
-    env = {**os.environ, "BUDGET_HOME": str(TMP)}
+    env = {**os.environ, "FAFNIR_HOME": str(TMP)}
     run = lambda *a: subprocess.run(cli + list(a), capture_output=True, text=True, env=env)  # noqa: E731
     assert run("record-job", "nightly", "1", "3", "0.25", "haiku", "a detail").returncode == 0
     assert run("record-job", "cli-job", "0", "3", "0.5", "haiku", "d", "--reason=error_max_turns", "--attempt=2").returncode == 0
@@ -135,12 +135,12 @@ def test_service_and_cli():
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     (proj / "s.jsonl").write_text(json.dumps({"type": "assistant", "timestamp": ts, "message": {
         "model": "claude-haiku-5-5", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": []}}) + "\n")
-    r = subprocess.run([sys.executable, str(ROOT / "budget" / "jobs" / "token-report.py")], capture_output=True, text=True, env={**env, "HOME": str(TMP / "home")})
+    r = subprocess.run([sys.executable, str(ROOT / "fafnir" / "jobs" / "token-report.py")], capture_output=True, text=True, env={**env, "HOME": str(TMP / "home")})
     receipt = json.loads((TMP / "state" / "jobs" / "token-report.json").read_text())
     assert r.returncode == 0 and receipt["ok"] and receipt["bytes"] >= 200, r.stdout + r.stderr
     assert Path(receipt["report"]).parent == TMP / "state" / "reports" / "token-attribution"
     # usage-digest: no usage.json is a failure; with one (and no status.json) the token-sum fallback row
-    digest = [sys.executable, str(ROOT / "budget" / "jobs" / "usage-digest.py")]
+    digest = [sys.executable, str(ROOT / "fafnir" / "jobs" / "usage-digest.py")]
     assert subprocess.run(digest, capture_output=True, env=env).returncode == 1
     (TMP / "state" / "usage").mkdir(parents=True, exist_ok=True)
     (TMP / "state" / "usage" / "usage.json").write_text(json.dumps(

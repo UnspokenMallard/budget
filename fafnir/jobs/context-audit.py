@@ -20,7 +20,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from budget import store  # noqa: E402
+from fafnir import store  # noqa: E402
 
 HOME = Path.home()
 CONFIGS = {"personal": HOME / ".claude-personal" / "projects", "work": HOME / ".claude-work" / "projects"}

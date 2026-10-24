@@ -143,12 +143,12 @@ def compute_claude_usage(cfg, work=False):
         'official server-side percentage - Anthropic publishes no exact Pro/Max token cap '
         f'(checked 2026-09-03). Set {prefix}_5h_budget_tokens / {prefix}_7d_budget_tokens in '
         'usage/status-config.json to override, or wait for a real usage-limit hit to '
-        'self-calibrate (see ~/.budget/budget/limits.py); until then this stays null rather '
+        'self-calibrate (see ~/.budget/fafnir/limits.py); until then this stays null rather '
         'than guess.'
     )
     if budget_source == 'observed-limit-hit':
         note = (
-            f"Budget is a lower-bound estimate from {ceilings.get('hit_count')} real usage-limit "
+            f"Fafnir is a lower-bound estimate from {ceilings.get('hit_count')} real usage-limit "
             f"hit(s), most recently {ceilings.get('last_hit_at')} - not an official number, "
             'just what has actually been observed. Could still be an underestimate if the '
             'true cap is higher than any hit so far revealed.'

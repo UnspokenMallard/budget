@@ -1,6 +1,6 @@
 """Phase 6 step 2: a usage limit is a defer, not a failure.
 
-Moved from Jarvis's daemon/limits.py into Budget on 2026-10-17. Budget records and answers;
+Moved from Jarvis's daemon/limits.py into Fafnir on 2026-10-17. Fafnir records and answers;
 Jarvis raises the alert (`alert()` returns it) and defers its own work.
 
 Read PHASE6-DESIGN.md §2 first. The short version of why this exists:
@@ -436,7 +436,7 @@ def record(hit: LimitHit, cfg: Mapping[str, Any] | None = None) -> float:
 
 def alert(provider: str, cfg: Mapping[str, Any] | None = None) -> tuple[str, str, str, int] | None:
     """(key, message, severity, cooldown_s) for the hit just recorded, for Jarvis to raise.
-    Budget records; Jarvis alerts. An error once `max_consecutive_defers` hits in a row have
+    Fafnir records; Jarvis alerts. An error once `max_consecutive_defers` hits in a row have
     falsified "waiting fixes it", a warn before that."""
     state = _read(provider)
     if not state:

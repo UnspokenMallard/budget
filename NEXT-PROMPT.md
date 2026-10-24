@@ -52,5 +52,5 @@ covers these rows too. The rule stays: this component measures or knows; Jarvis 
 
 > Budget is broken. First, do not delete `state/budget.db` or a brake/limit file to "reset" it:
 > they are the evidence. Copy the db with `sqlite3 .backup`, read `state/logs/server.log` and
-> the daemon log, run `~/.budget/.venv/bin/python ~/.budget/tests/test_budget.py`, and report
+> the daemon log, run `~/.budget/.venv/bin/python ~/.budget/tests/test_fafnir.py`, and report
 > before fixing.

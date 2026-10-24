@@ -9,7 +9,7 @@ Deliberately narrow, as built in Jarvis's Phase 6:
 - It self-clears after `brake_clears_after_s`: a brake that needs a human converts a spend
   incident into an outage. An unreadable brake file means no brake, for the same reason.
 
-Budget decides and records; it never alerts. `consider()` returns whether this call engaged the
+Fafnir decides and records; it never alerts. `consider()` returns whether this call engaged the
 brake, and Jarvis's burn-check raises the alert.
 """
 from __future__ import annotations
@@ -66,8 +66,8 @@ def engage(reason: str, evidence: list[str], cfg: Mapping[str, Any] | None = Non
         tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
         tmp.replace(p)
     except OSError as exc:
-        log.warning("budget: could not write the brake file: %s", exc)
-    log.warning("budget: brake engaged - %s", reason)
+        log.warning("fafnir: could not write the brake file: %s", exc)
+    log.warning("fafnir: brake engaged - %s", reason)
     return state
 
 
@@ -77,9 +77,9 @@ def release(why: str = "released", scope: str = "personal") -> None:
         existed = p.exists()
         p.unlink(missing_ok=True)
         if existed:
-            log.info("budget: brake released (%s)", why)
+            log.info("fafnir: brake released (%s)", why)
     except OSError as exc:
-        log.debug("budget: could not clear the brake file: %s", exc)
+        log.debug("fafnir: could not clear the brake file: %s", exc)
     store.set_meta(_streak_key(scope), "0")
 
 
