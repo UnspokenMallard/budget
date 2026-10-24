@@ -1,8 +1,9 @@
-"""Fafnir against a scratch store: ledger and ceilings, the brake decision, usage limits, the
+"""Fafnir against a scratch Mimir store: ledger and ceilings, the brake decision, usage limits, the
 service's answers and its write guard, and the CLI exit codes job scripts rely on.
 Run: ~/.budget/.venv/bin/python ~/.budget/tests/test_fafnir.py"""
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -11,18 +12,26 @@ from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="fafnir-test-"))
 os.environ["FAFNIR_HOME"] = str(TMP)  # read at import: never the live store
+os.environ["MEMORY_DB"] = str(TMP / "memory.db")  # Mimir's store, a scratch one
+os.environ["MIMIR_OUTBOX"] = str(TMP / "outbox")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "server"))
+sys.path.insert(0, str(Path.home() / ".mind" / "mimir"))
 
-from fafnir import brake, ledger, limits, store  # noqa: E402
+import mem  # noqa: E402
+import mimirrecords as mr  # noqa: E402
+
+mr.use_local(mem.connect(shared=True))  # calls go to the scratch store in-process, no HTTP
+
+from fafnir import brake, cli, ledger, limits, store  # noqa: E402
 
 CFG = {"llm_jobs": {"weekly_budget_usd": 10.0, "daily_budget_usd": 6.0},
        "burn": {"max_calls_per_window": 2, "max_spend_usd_per_window": 1.0, "brake_after_consecutive_windows": 2, "brake_clears_after_s": 1}}
 
 
 def test_ledger_and_ceilings():
-    assert store.DB_PATH == TMP / "state" / "budget.db"
+    assert not hasattr(store, "DB_PATH")  # no database of its own: the ledger is Mimir telemetry
     ledger.record_job("advisor", True, 10, 5.0, "sonnet")
     b = ledger.job_budget(CFG)
     assert not b["over"] and b["paused_for_optional"] is False and b["spent"] == 5.0
@@ -40,22 +49,11 @@ def test_ledger_and_ceilings():
     assert j["job"] == "advisor" and j["runs30"] == 2 and j["usd30"] == 6.5 and j["failed30"] == 0
 
 
-def test_wasted_spend_and_migration():
-    import sqlite3
-    old = TMP / "old.db"  # a pre-T6 job_calls table keeps its rows through the migration
-    c = sqlite3.connect(old)
-    c.execute("CREATE TABLE job_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, job TEXT NOT NULL, "
-              "model TEXT, ok INTEGER NOT NULL, duration_s REAL, cost_usd REAL, detail TEXT, scope TEXT NOT NULL DEFAULT 'personal')")
-    c.execute("INSERT INTO job_calls(ts, job, ok, cost_usd) VALUES(?, 'legacy', 0, 1.0)", (time.time(),))
-    c.commit()
-    c.close()
-    real, store.DB_PATH = store.DB_PATH, old
-    try:
-        ledger.ensure_schema()
-        ledger.ensure_schema()  # idempotent
-        assert ledger.wasted_spend() == [{"job": "legacy", "rows": 1, "usd": 1.0}]  # NULL reason, ok=0 still counts
-    finally:
-        store.DB_PATH = real
+def test_wasted_spend():
+    # a row imported from the old budget.db: every column copied, a NULL reason, no uid
+    mr.append("fafnir", ledger.JOBS, {"id": 7, "job": "legacy", "ok": 0, "cost_usd": 1.0, "scope": "personal", "reason": None},
+              at=time.time())
+    assert ledger.wasted_spend() == [{"job": "legacy", "rows": 1, "usd": 1.0}]  # NULL reason, ok=0 still counts
     ledger.record_job("w-job", True, 1, 0.5, "haiku", attempt=1)  # useful
     bad = ledger.record_job("w-job", True, 1, 0.25, "haiku", attempt=1)
     ledger.reject_job(bad, "no artifact")  # call ok, output rejected
@@ -64,6 +62,7 @@ def test_wasted_spend_and_migration():
     j = next(x for x in ledger.job_spend_by_job() if x["job"] == "w-job")
     assert j["failed30"] == 1 and j["rejected30"] == 1
     assert ledger.wasted_line().startswith("wasted spend, 7 days: $")
+    assert isinstance(bad, str) and ledger.record_job("later", True, 1)  # an id is what reject_job takes back
 
 
 def test_brake():
@@ -121,31 +120,39 @@ def test_service_and_cli():
     assert c.post("/record/call", json={"surface": "x"}, headers={"origin": "https://evil.example"}).status_code == 403
     assert c.post("/record/call", json={}).status_code == 400
     assert TestClient(app.app, base_url="http://evil.example").get("/health").status_code == 400
-    cli = [str(ROOT / "bin" / "budget")]
-    env = {**os.environ, "FAFNIR_HOME": str(TMP)}
-    run = lambda *a: subprocess.run(cli + list(a), capture_output=True, text=True, env=env)  # noqa: E731
+    assert cli.main(["job-budget"]) == 0  # no config.toml in the scratch home: the default ceiling, not reached
+    assert cli.main(["job-budget", "--scope=nobody"]) == 2
+    # the budget command with Mimir off: a record is queued in the outbox (exit 0), a read says so (2 and 3)
+    env = {**os.environ, "FAFNIR_HOME": str(TMP), "MIMIR_URL": "none"}
+    run = lambda *a: subprocess.run([str(ROOT / "bin" / "budget"), *a], capture_output=True, text=True, env=env)  # noqa: E731
     assert run("record-job", "nightly", "1", "3", "0.25", "haiku", "a detail").returncode == 0
     assert run("record-job", "cli-job", "0", "3", "0.5", "haiku", "d", "--reason=error_max_turns", "--attempt=2").returncode == 0
-    assert any(w["job"] == "cli-job" for w in ledger.wasted_spend())
-    assert run("job-budget").returncode == 0  # no config.toml in the scratch home: the default $40 ceiling, not reached
-    assert run("job-budget", "--scope=nobody").returncode == 2
+    assert run("job-budget").returncode == 2 and run("report").returncode == 3
+    assert mr.pending("fafnir")["pending"] == 2  # what Mimir missed is waiting, not lost
+    assert any(w["job"] == "cli-job" for w in ledger.wasted_spend())  # Mimir is back: a read replays the outbox first
+    assert mr.pending("fafnir") == {"pending": 0, "oldest_age_s": 0, "rejected": 0}
     # token-report reads transcripts under $HOME: one assistant turn, then the dated report and its receipt
     proj = TMP / "home" / ".claude-personal" / "projects" / "p"
     proj.mkdir(parents=True)
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     (proj / "s.jsonl").write_text(json.dumps({"type": "assistant", "timestamp": ts, "message": {
         "model": "claude-haiku-5-5", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": []}}) + "\n")
-    r = subprocess.run([sys.executable, str(ROOT / "fafnir" / "jobs" / "token-report.py")], capture_output=True, text=True, env={**env, "HOME": str(TMP / "home")})
+    r = subprocess.run([sys.executable, str(ROOT / "fafnir" / "jobs" / "token-report.py")], capture_output=True, text=True, env={**env, "HOME": str(TMP / "home"), "PYTHONPATH": str(Path.home() / ".mind" / "mimir")})
     receipt = json.loads((TMP / "state" / "jobs" / "token-report.json").read_text())
     assert r.returncode == 0 and receipt["ok"] and receipt["bytes"] >= 200, r.stdout + r.stderr
     assert Path(receipt["report"]).parent == TMP / "state" / "reports" / "token-attribution"
     # usage-digest: no usage.json is a failure; with one (and no status.json) the token-sum fallback row
     digest = [sys.executable, str(ROOT / "fafnir" / "jobs" / "usage-digest.py")]
-    assert subprocess.run(digest, capture_output=True, env=env).returncode == 1
+    def run_digest():  # in process: the digest reads the ledger, which the scratch store holds
+        try:
+            runpy.run_path(digest[1], run_name="__main__")
+        except SystemExit as exc:
+            return exc.code or 0
+    assert run_digest() == 1
     (TMP / "state" / "usage").mkdir(parents=True, exist_ok=True)
     (TMP / "state" / "usage" / "usage.json").write_text(json.dumps(
         {"window": "2026-10-18", "claude": {"estimatedCostUsd": 1.5, "inputTokens": 7, "outputTokens": 3}}))
-    assert subprocess.run(digest, capture_output=True, env=env).returncode == 0
+    assert run_digest() == 0
     row = json.loads((TMP / "state" / "reports" / "usage-digest" / "latest.json").read_text())
     assert row["row"][:5] == ["2026-10-18", "10", "10", "$1.5000", "-"] and row["row"][5].startswith("fallback")
     assert "wasted spend, 7 days" in row["row"][5] and row["wasted"] in row["row"][5]
@@ -153,7 +160,7 @@ def test_service_and_cli():
 
 if __name__ == "__main__":
     test_ledger_and_ceilings()
-    test_wasted_spend_and_migration()
+    test_wasted_spend()
     test_brake()
     test_limits()
     test_billable_tokens_count_a_message_once()
