@@ -49,10 +49,9 @@ window_s = 900
 # min is far above anything normal operation produces, so tripping it means
 # something is looping rather than that the day was busy.
 max_calls_per_window = 12
-# Surface prefixes left out of that call count (spend still counts them): local Ollama calls
-# (`local:`, $0, no account) and HUD features (`hud-`, not the daemon). Mind's memory-contradict
-# and the HUD's whereami summaries tripped the limit 29 times in 2026-10-18..23 (incident 128).
-count_exclude_surfaces = ["local:", "hud-"]
+# Surface prefixes left out of that call count (spend still counts them): HUD features (`hud-`, not the
+# daemon). The HUD's whereami summaries tripped the limit 29 times in 2026-10-18..23 (incident 128).
+count_exclude_surfaces = ["hud-"]
 max_spend_usd_per_window = 1.50
 
 # The brake (step 4). Set brake_enabled = false to go back to alert-only.

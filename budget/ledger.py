@@ -1,7 +1,7 @@
 """The spend ledger and the ceilings (moved from Jarvis's daemon/burn.py, 2026-10-17).
 
 Meters what the machine's own automation spent, per Claude account (`scope`: personal, work):
-- `provider_calls`: every model call by a daemon surface, the HUD or a local model. Call count
+- `provider_calls`: every model call by a daemon surface or the HUD. Call count
   is the runaway signal even where cost is unknown, so a call is recorded with or without a price
   (`cost_usd` NULL = unknown, never 0.0: a ledger must not understate spend).
 - `job_calls`: one row per nightly LLM job run; read by the weekly and daily ceilings, never by
@@ -68,7 +68,7 @@ def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
     section = dict(cfg.get("burn") or {})
     for k, v in (("enabled", True), ("window_s", 900), ("max_calls_per_window", 12), ("max_spend_usd_per_window", 1.50),
                  ("brake_enabled", True), ("brake_after_consecutive_windows", 3), ("brake_clears_after_s", 3600),
-                 ("count_exclude_surfaces", ["local:", "hud-"])):
+                 ("count_exclude_surfaces", ["hud-"])):
         section.setdefault(k, v)
     return section
 

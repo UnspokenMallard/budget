@@ -33,9 +33,8 @@ def test_ledger_and_ceilings():
     for _ in range(3):
         ledger.record_call("criteria-score", True, 1.0, None, "haiku")  # unknown price still counts
     assert ledger.call_rate(900, "personal") == (3, 0.0)
-    ledger.record_call("local:memory-contradict", True, 0.5, 0.0, "qwen3.5:4b")
     ledger.record_call("hud-whereami", True, 3.0, 0.25, "haiku")
-    assert ledger.call_rate(900, "personal", ("local:", "hud-")) == (3, 0.25)  # not counted, spend still is
+    assert ledger.call_rate(900, "personal", ("hud-",)) == (3, 0.25)  # not counted, spend still is
     assert [k for k, _ in ledger.burn_findings(CFG)] == ["burn:calls:personal"]
     j = ledger.job_spend_by_job()[0]
     assert j["job"] == "advisor" and j["runs30"] == 2 and j["usd30"] == 6.5 and j["failed30"] == 0
