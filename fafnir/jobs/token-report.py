@@ -421,12 +421,16 @@ def render(data, days):
 def jobs_beside_sessions(days):
     """Lines putting the ledger's LLM job spend next to all Claude Code spend per account (audit A35, 2026-10-25).
     Job runs write transcripts under the same config dirs, so interactive spend is the difference."""
-    spec = importlib.util.spec_from_file_location("update_usage", Path(__file__).with_name("update-usage.py"))
-    usage = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(usage)
+    L = [f"## Jobs beside interactive sessions, last {days} days", ""]
+    try:
+        spec = importlib.util.spec_from_file_location("update_usage", Path(__file__).with_name("update-usage.py"))
+        usage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(usage)
+        pricing = usage.load_config()["pricingUsdPerMTok"]
+    except Exception as e:  # noqa: BLE001 - without prices this section is skipped, the report still stands
+        return L + [f"Unavailable: no pricing ({type(e).__name__}: {e}).", ""]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    pricing = usage.load_config()["pricingUsdPerMTok"]
-    L = [f"## Jobs beside interactive sessions, last {days} days", "",
+    L += [
          "Estimated from transcripts at list prices. Job runs that leave transcripts in these dirs count in both columns, so Interactive is the difference.", "",
          "| Account | All Claude Code | LLM jobs (ledger) | Interactive |", "|---|--:|--:|--:|"]
     for account, dirs in usage.ACCOUNT_DIRS.items():
