@@ -33,8 +33,8 @@ holds work or files findings. Jarvis asks it and acts: holds the queue, defers a
 
 Stays in Jarvis: the stuck-event and repeated-failure detectors (they read Jarvis's own event
 queue; `burn.py` shrinks to them, renamed `stuck.py`), `brain.py` and its private cap ledger
-`brain_calls` (brain still records each call to Budget), the alert on brake engagement, and
-`earned.py` (goes to Forge).
+`brain_calls` (brain still records each call to Fafnir), the alert on brake engagement, and
+`earned.py` (goes to Brokkr).
 
 ## Interface
 
@@ -76,7 +76,7 @@ HUD tests and Mimir tests must pass before and after.
 
 ## As built (2026-10-17)
 
-Ledger note (Gateway, 2026-10-17/18): every model call is recorded by `~/.gateway` now. `provider_calls.surface` carries the
+Ledger note (Bifrost, 2026-10-17/18): every model call is recorded by `~/.gateway` now. `provider_calls.surface` carries the
 Bifrost surface name: brain's rows are `escalation`, `inbound-task-triage`, `inbound-message-triage`, `inbound-draft`,
 `report-narrate`, `originate` (they were all `work` before), plus `criteria-score` (now with a cost), `hud-*`, `mind-improve-*`
 and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are recorded by Bifrost (`limits.record`).
@@ -100,7 +100,7 @@ and `local:<surface>`. `job_calls` keeps the job names. Usage-limit windows are 
   `state/jobs/token-report.json`; Jarvis's job `token-report` calls it through `budget-job.sh`.
   The old reports were copied from `~/.jarvis/reports/token-attribution/` (copies, mtimes kept).
 - Jarvis keeps: `daemon/burn.py` (stuck and repeated-failure detectors, `check_keyed` combining
-  them with `ledger.burn_findings`), `core.record_limit` (Budget records, Jarvis alerts), the
+  them with `ledger.burn_findings`), `core.record_limit` (Fafnir records, Jarvis alerts), the
   brake alert in `handlers/burn_check.py`, the queue and brain refusing while braked.
 - Brake on spend only (2026-10-19, proactive-agent step 3): `max_spend_usd_per_window` over its limit for
   `brake_after_consecutive_windows` windows engages the brake; `max_calls_per_window` over its limit only
