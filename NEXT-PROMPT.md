@@ -30,6 +30,8 @@ covers these rows too. The rule stays: this component measures or knows; Jarvis 
   last 7 days ($70) more than double the week before ($31). Report interactive spend beside jobs.
 - **A38 (Phase 3)** token-report and usage-digest are designated to move here from Analyst.
 
+**Status 2026-10-25 (HUD task freyr-398c, merge with Jarvis):** A35 (1b74815, 1985947) is built: the weekly token report shows all Claude Code spend, LLM job spend and the interactive difference per account. First 7-day figures: personal $420 vs $37 jobs, work $649 vs $21.
+
 | When (earliest useful, not a deadline) | Step | Waits on |
 |---|---|---|
 | 2026-10-26 (after the weekly context-audit) | A35: compare with the 10-19 figure ($1,261/wk) | the weekly run |
