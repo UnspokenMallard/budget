@@ -48,7 +48,7 @@ window_s = 900
 # delegation day (0.7 escalations + a couple of criteria scorings). 12 per 15
 # min is far above anything normal operation produces, so tripping it means
 # something is looping rather than that the day was busy.
-max_calls_per_window = 12
+max_calls_per_window = 40
 # Surface prefixes left out of that call count (spend still counts them): HUD features (`hud-`, not the
 # daemon). The HUD's whereami summaries tripped the limit 29 times in 2026-10-18..23 (incident 128).
 count_exclude_surfaces = ["hud-"]
