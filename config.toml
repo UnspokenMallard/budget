@@ -108,7 +108,8 @@ daily_budget_usd = 22.5
 # Optional jobs also pause while the trailing 5h window of billable tokens (usage/status.json,
 # personal account) is at or above this. Added 2026-10-09 by Jarvis as a starting point, not
 # measured against a server limit (Anthropic publishes none). Remove the key to turn it off.
-five_hour_pause_tokens = 2000000
+# Raised to 4M by Anze 2026-10-27: ordinary use sat at 1.92M (96%), so optional jobs deferred daily.
+five_hour_pause_tokens = 4000000
 # Optional jobs (issue-triage, portfolio-advisor) also stop at 80% of the weekly
 # ceiling, so the last 20% stays for the jobs that must run.
 # The work account has its own quota, ledger and ceiling (Anze 2026-10-06: quota separate
