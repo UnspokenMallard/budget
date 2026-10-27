@@ -151,12 +151,18 @@ def _jobs_with_waste(days: float) -> list[tuple[dict, bool, bool]]:
 
 
 def wasted_spend(days: float = 7) -> list[dict]:
-    """Per job in the trailing window: rows that failed, were retried or were rejected, and their known cost."""
+    """Per job in the trailing window: rows that failed, were retried or were rejected, and their known cost.
+    `uids` names those rows, oldest first; `cause` is the newest one's reason, else its detail."""
     per_job: dict[str, list] = {}
     for d, wasted, _ in _jobs_with_waste(days):
         if wasted:
-            per_job.setdefault(d["job"], []).append(d.get("cost_usd") or 0)
-    rows = [{"job": job, "rows": len(costs), "usd": round(sum(costs), 2)} for job, costs in per_job.items()]
+            per_job.setdefault(d["job"], []).append(d)
+    rows = []
+    for job, ds in per_job.items():
+        ds.sort(key=lambda d: d.get("ts") or 0)
+        rows.append({"job": job, "rows": len(ds), "usd": round(sum(d.get("cost_usd") or 0 for d in ds), 2),
+                     "uids": [d.get("uid") for d in ds],
+                     "cause": str(ds[-1].get("reason") or ds[-1].get("detail") or "")[:120]})
     return sorted(rows, key=lambda r: -r["usd"])
 
 

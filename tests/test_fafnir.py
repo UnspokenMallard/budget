@@ -53,12 +53,14 @@ def test_wasted_spend():
     # a row imported from the old budget.db: every column copied, a NULL reason, no uid
     mr.append("fafnir", ledger.JOBS, {"id": 7, "job": "legacy", "ok": 0, "cost_usd": 1.0, "scope": "personal", "reason": None},
               at=time.time())
-    assert ledger.wasted_spend() == [{"job": "legacy", "rows": 1, "usd": 1.0}]  # NULL reason, ok=0 still counts
+    assert [{k: w[k] for k in ("job", "rows", "usd")} for w in ledger.wasted_spend()] == \
+        [{"job": "legacy", "rows": 1, "usd": 1.0}]  # NULL reason, ok=0 still counts
     ledger.record_job("w-job", True, 1, 0.5, "haiku", attempt=1)  # useful
     bad = ledger.record_job("w-job", True, 1, 0.25, "haiku", attempt=1)
     ledger.reject_job(bad, "no artifact")  # call ok, output rejected
     ledger.record_job("w-job", False, 1, 0.125, "haiku", reason="transient", attempt=2)  # retried
-    assert [w for w in ledger.wasted_spend() if w["job"] == "w-job"] == [{"job": "w-job", "rows": 2, "usd": 0.38}]
+    w = next(w for w in ledger.wasted_spend() if w["job"] == "w-job")
+    assert (w["rows"], w["usd"], w["cause"]) == (2, 0.38, "transient") and w["uids"][0] == bad, w  # cause: the newest row
     j = next(x for x in ledger.job_spend_by_job() if x["job"] == "w-job")
     assert j["failed30"] == 1 and j["rejected30"] == 1
     assert ledger.wasted_line().startswith("wasted spend, 7 days: $")
