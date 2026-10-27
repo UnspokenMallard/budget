@@ -159,10 +159,9 @@ def test_service_and_cli():
 
 
 if __name__ == "__main__":
-    test_ledger_and_ceilings()
-    test_wasted_spend()
-    test_brake()
-    test_limits()
-    test_billable_tokens_count_a_message_once()
-    test_service_and_cli()
-    print("ok")
+    tests = [test_ledger_and_ceilings, test_wasted_spend, test_brake, test_limits,
+             test_billable_tokens_count_a_message_once, test_service_and_cli]
+    for test in tests:
+        test()
+        print(f"PASS {test.__name__}")
+    print(f"{len(tests)} passed")
