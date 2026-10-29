@@ -87,6 +87,7 @@ def test_brake():
 
 def test_limits():
     assert limits.detect("artifact usage.json fresh (0.0m old, 429 B)") is None  # a byte count is not a limit
+    assert limits.detect('{"is_error":true,"api_error_status":429,"api_error_origin":"fi') is not None  # claude -p JSON
     hit = limits.detect("Claude AI usage limit reached|1792240000", limits.CLAUDE)
     assert hit is not None
     limits.record(hit)

@@ -112,7 +112,7 @@ _STRONG = (
 # limit, and a detector that defers the nightly jobs because a file happened to
 # be 429 bytes long is worse than no detector. Verified against the event
 # corpus before this was narrowed -- see the replay assertion in selftest.py.
-_CODE_429 = r"(?:http[/ ]?[\d.]*\s*|status(?:\s*code)?\s*[:=]?\s*|error\s*[:=]?\s*)429\b|429\s+too many requests"
+_CODE_429 = r"(?:http[/ ]?[\d.]*\s*|status(?:\s*code)?[\"']?\s*[:=]?\s*|error[\"']?\s*[:=]?\s*)429\b|429\s+too many requests"
 
 MARKERS = re.compile(rf"(?i)\b(?:{_STRONG})|{_CODE_429}")
 
