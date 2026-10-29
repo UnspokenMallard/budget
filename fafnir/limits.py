@@ -103,7 +103,7 @@ _STRONG = (
     r"|upgrade your plan"
     r"|plan limit"
     r"|too many requests"
-    r"|you(?:'ve| have) (?:reached|hit) (?:your|the) limit"
+    r"|you(?:'ve| have) (?:reached|hit) (?:your|the) (?:\w+ )?limit"
 )
 
 # 429 needs context. `delegation.py` matched a bare `\b429\b`, which in THIS
@@ -158,6 +158,8 @@ _ISO_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)\b")
 _IN_RE = re.compile(r"\bin\s+(\d{1,4})\s*(second|minute|hour)s?\b", re.I)
 _RETRY_AFTER_RE = re.compile(r"retry[- ]after\s*[:=]?\s*(\d{1,6})\b", re.I)
 _AT_CLOCK_RE = re.compile(r"\b(?:at|until)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", re.I)
+# `You've hit your weekly limit · resets 12am (Europe/Ljubljana)`: am/pm required, a bare "resets 5" is no clock.
+_RESETS_CLOCK_RE = re.compile(r"\bresets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", re.I)
 
 
 def _parse_reset(text: str, now: float | None = None) -> float | None:
@@ -198,7 +200,7 @@ def _parse_reset(text: str, now: float | None = None) -> float | None:
         except ValueError:
             pass
 
-    m = _AT_CLOCK_RE.search(text)
+    m = _AT_CLOCK_RE.search(text) or _RESETS_CLOCK_RE.search(text)
     if m:
         hour = int(m.group(1))
         minute = int(m.group(2) or 0)
