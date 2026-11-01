@@ -40,15 +40,16 @@ queue; `burn.py` shrinks to them, renamed `stuck.py`), `brain.py` and its privat
 
 Service, JSON:
 - `GET /health`
-- `GET /budget/{scope}?optional=1` -> `{allowed, over, over_daily, paused_for_optional, spent, ceiling, spent_day, daily_ceiling, five_hour_tokens, ...}`
-- `POST /record/job` `{job, ok, duration_s, cost_usd, model, detail, scope}`; `POST /record/call` `{surface, ...}`
-- `GET /limits/{provider}` -> `{blocked, resume_at}`; `POST /limits/hit` `{text, provider}` -> detected window or null; `POST /limits/success`
+- `GET /budget/{scope}` -> `{allowed, over, over_daily, paused_for_optional, spent, ceiling, spent_day, daily_ceiling, five_hour_tokens, ...}` (`optional=1` gates on the optional pause)
+- `GET /limits` -> `{provider: {blocked, until}}`
 - `GET /quota` -> `{low, why}`
-- `GET /rate?window_s=&scope=` -> `{calls, spend}`
-- `POST /burn/tick` -> `{findings, brake: {personal, work}, engaged_now: [scopes]}` (Jarvis's `burn-check` alerts on `engaged_now`)
-- `GET /brake/{scope}`, `POST /brake/{scope}/release`
-- `POST /run/{usage-refresh|usage-digest|spend-by-effort|token-report}` (Jarvis's jobs call these)
-- `GET /report`
+- `GET /rate` -> `{calls, spend}` (`window_s` defaults to 900; `scope` limits to one account)
+- `GET /brake/{scope}` -> `{engaged, state}`
+- `GET /spend/jobs`
+- `GET /usage` -> `{status, usage}`
+- `POST /record/call` `{surface, ...}`; `POST /record/job` `{job, ok, duration_s, cost_usd, model, detail, scope}`
+
+Burn-check, the brake and limit recording run through the Python library, and a brake is released by deleting its state file (`state/brake.json` or `state/brake-<scope>.json`).
 
 Python callers on this Mac (Jarvis's daemon and scripts, Mimir's jobs) import the `budget`
 library directly (stdlib only; `~/.budget` on `sys.path` through `core.py` and `jobcommon.py`):
