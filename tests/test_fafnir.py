@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="fafnir-test-"))
@@ -44,9 +45,71 @@ def test_ledger_and_ceilings():
     assert ledger.call_rate(900, "personal") == (3, 0.0)
     ledger.record_call("hud-whereami", True, 3.0, 0.25, "haiku")
     assert ledger.call_rate(900, "personal", ("hud-",)) == (3, 0.25)  # not counted, spend still is
-    assert [k for k, _ in ledger.burn_findings(CFG)] == ["burn:calls:personal"]
+    findings = ledger.burn_findings(CFG)
+    assert [k for k, _ in findings] == ["burn:calls:personal"]
+    assert findings[0][1].endswith(" Top: criteria-score 3 calls $0.00")  # hud- excluded from the call ranking
     j = ledger.job_spend_by_job()[0]
     assert j["job"] == "advisor" and j["runs30"] == 2 and j["usd30"] == 6.5 and j["failed30"] == 0
+
+
+def test_rows_pages_past_the_cap():
+    # A tie on `at` sits on the page boundary: an exclusive cursor would drop it, a naive one would repeat it.
+    saved_page, saved_query = ledger._PAGE, ledger.mr.query
+    spec = [
+        ("a", 100.0, {"n": 1}),
+        ("b", 100.0, {"n": 2}),
+        ("c", 200.0, {"n": 3}),
+        ("d", 200.0, {"n": 4}),
+        ("e", 300.0, {"n": 5}),
+        ("f", 400.0, {"n": 6}),
+        ("g", 400.0, {"n": 7}),
+    ]
+    calls = {"n": 0}
+
+    def fake_query(stream=None, since=None, where=None, limit=1000, order="asc", source=None, **kwargs):
+        assert where == "scope:" + json.dumps("personal")
+        calls["n"] += 1
+        chosen = [row for row in spec if since is None or row[1] >= since]
+        chosen.sort(key=lambda row: (row[1], row[0]))
+        return [{"id": i, "at": at, "data": data, "uid": i} for i, at, data in chosen[:limit]]
+
+    ledger._PAGE = 3
+    ledger.mr.query = fake_query
+    try:
+        out = ledger._rows(ledger.CALLS, 0, "personal")
+    finally:
+        ledger._PAGE, ledger.mr.query = saved_page, saved_query
+    assert calls["n"] > 1  # more rows than one page, so it had to ask again
+    assert [r["n"] for r in out] == [1, 2, 3, 4, 5, 6, 7]
+    assert [r["ts"] for r in out] == [100.0, 100.0, 200.0, 200.0, 300.0, 400.0, 400.0]
+
+
+def test_burn_findings_name_top_surfaces():
+    saved = ledger._rows
+    rows = [
+        {"surface": "alpha", "cost_usd": 0.10},
+        {"surface": "alpha", "cost_usd": 0.10},
+        {"surface": "alpha", "cost_usd": 0.10},
+        {"surface": "beta", "cost_usd": 2.00},
+        {"surface": "hud-whereami", "cost_usd": 0.0},
+        {"surface": "hud-whereami", "cost_usd": 0.0},
+        {"surface": "hud-whereami", "cost_usd": 0.0},
+    ]
+
+    def fake_rows(stream, since, scope=None):
+        return rows if scope == "personal" else []
+
+    ledger._rows = fake_rows
+    try:
+        found = dict(ledger.burn_findings(CFG))
+    finally:
+        ledger._rows = saved
+    assert found["burn:calls:personal"].startswith("BURN-CALLS:")
+    assert found["burn:calls:personal"].endswith(" Top: alpha 3 calls $0.30; beta 1 calls $2.00")
+    assert found["burn:spend:personal"].startswith("BURN:")
+    assert not found["burn:spend:personal"].startswith("BURN-CALLS:")
+    assert found["burn:spend:personal"].endswith(
+        " Top: beta 1 calls $2.00; alpha 3 calls $0.30; hud-whereami 3 calls $0.00")
 
 
 def test_wasted_spend():
@@ -140,6 +203,28 @@ def test_billable_tokens_count_a_message_once():
         limits.PROJECTS_DIRS_BY_PROVIDER[limits.CLAUDE] = old
 
 
+def test_five_hour_tokens_ignores_a_stale_status():
+    usage = ledger.usage_dir()
+    usage.mkdir(parents=True, exist_ok=True)
+    path = usage / "status.json"
+
+    def write(updated_at, tokens=12345):
+        path.write_text(json.dumps({"updated_at": updated_at, "claude": {"five_hour_billable_tokens": tokens}}))
+
+    fresh = datetime.now(timezone.utc).isoformat()
+    try:
+        write(fresh, 12345)
+        assert ledger.five_hour_tokens() == 12345
+        write((datetime.now(timezone.utc) - timedelta(hours=4)).isoformat(), 99999)
+        assert ledger.five_hour_tokens() is None  # 4h > STATUS_MAX_AGE_S: unknown, not the stale number
+        path.write_text(json.dumps({"claude": {"five_hour_billable_tokens": 7}}))
+        assert ledger.five_hour_tokens() is None  # missing updated_at
+        write("not-a-timestamp", 7)
+        assert ledger.five_hour_tokens() is None
+    finally:
+        path.unlink(missing_ok=True)  # test_service_and_cli writes usage.json here and expects no status.json
+
+
 def test_service_and_cli():
     import app
     from starlette.testclient import TestClient
@@ -191,8 +276,9 @@ def test_service_and_cli():
 
 
 if __name__ == "__main__":
-    tests = [test_ledger_and_ceilings, test_wasted_spend, test_brake, test_limits,
-             test_billable_tokens_count_a_message_once, test_service_and_cli]
+    tests = [test_ledger_and_ceilings, test_rows_pages_past_the_cap, test_burn_findings_name_top_surfaces,
+             test_wasted_spend, test_brake, test_limits, test_billable_tokens_count_a_message_once,
+             test_five_hour_tokens_ignores_a_stale_status, test_service_and_cli]
     for test in tests:
         test()
         print(f"PASS {test.__name__}")

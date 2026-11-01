@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Mapping
 
 from . import store
@@ -36,6 +37,10 @@ SCOPES = ("personal", "work")
 JOB_WEEKLY_BUDGET_DEFAULT = 60.0
 # Share of the weekly ceiling at which optional jobs stop starting (added 2026-10-09).
 OPTIONAL_PAUSE_FRACTION = 1.0  # raised from 0.8 by Anze 2026-10-20
+# Mimir returns at most this many rows per read. One read kept the oldest page and dropped the rest.
+_PAGE = 5000
+# status.json is refreshed hourly; older than this, the 5h token count is unknown (fail open).
+STATUS_MAX_AGE_S = 3 * 3600
 
 
 def usage_dir():
@@ -44,9 +49,21 @@ def usage_dir():
 
 def _rows(stream: str, since: float, scope: str | None = None) -> list[dict]:
     """The data of the stream's rows since `since`, each with `ts` (a call's time). Raises MimirDown.
-    shortcut: 5000 rows per read covers days of calls at today's rate, page it if that ever changes."""
+
+    Pages of `_PAGE`. A full page is read again from its last `at` (inclusive) and ids already
+    returned are skipped, so a tie on `at` is kept once and a window longer than one page is not
+    cut off after the oldest rows. Stops when a page is short or adds no new id."""
     where = None if scope is None else "scope:" + json.dumps(scope)
-    return [{**r["data"], "ts": r["at"]} for r in mr.query(stream=stream, since=since, where=where, limit=5000, source=SOURCE)]
+    out: list[dict] = []
+    seen: set = set()
+    while True:
+        page = mr.query(stream=stream, since=since, where=where, limit=_PAGE, source=SOURCE)
+        fresh = [r for r in page if r["id"] not in seen]
+        seen.update(r["id"] for r in page)
+        out.extend({**r["data"], "ts": r["at"]} for r in fresh)
+        if len(page) < _PAGE or not fresh:
+            return out
+        since = page[-1]["at"]
 
 
 def cfg_burn(cfg: Mapping[str, Any] | None = None) -> dict:
@@ -124,12 +141,16 @@ def sample_usage() -> dict | None:
     return rows[0] if rows else None
 
 
+def _call_totals(rows: list[dict], exclude: tuple[str, ...] = ()) -> tuple[int, float]:
+    """(calls, known spend) over rows already read. `exclude` prefixes drop out of the count only."""
+    return (sum(1 for d in rows if not str(d.get("surface") or "").startswith(exclude)),
+            float(sum(d.get("cost_usd") or 0 for d in rows)))
+
+
 def call_rate(window_s: int, scope: str | None = None, exclude: tuple[str, ...] = ()) -> tuple[int, float]:
     """(calls, total known spend) recorded inside the window; `scope` None sums both accounts.
     `exclude` surface prefixes drop out of the call count only; spend still sums every row."""
-    rows = _rows(CALLS, time.time() - window_s, scope)
-    return (sum(1 for d in rows if not str(d.get("surface") or "").startswith(exclude)),
-            float(sum(d.get("cost_usd") or 0 for d in rows)))
+    return _call_totals(_rows(CALLS, time.time() - window_s, scope), exclude)
 
 
 def job_spend(days: float = 7, scope: str | None = None) -> tuple[float, int]:
@@ -193,13 +214,32 @@ def job_spend_by_job() -> list[dict]:
     return sorted(out, key=lambda r: -(r["usd30"] or 0))
 
 
+def _status_fresh(updated_at: object) -> bool:
+    """True when `updated_at` is an offset ISO 8601 time no older than STATUS_MAX_AGE_S.
+    A missing offset has no absolute age, so it counts as unparseable and the pause stays off."""
+    if not isinstance(updated_at, str):
+        return False
+    try:
+        stamp = datetime.fromisoformat(updated_at)
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:
+        return False
+    return time.time() - stamp.timestamp() <= STATUS_MAX_AGE_S
+
+
 def five_hour_tokens(scope: str = "personal") -> float | None:
     """Billable tokens in the trailing 5h window (state/usage/status.json, refreshed hourly).
-    Only the personal account is measured; None when unreadable, which leaves the 5h pause off."""
+    Only the personal account is measured. None means unknown, fail open (the 5h pause stays off):
+    the file or the count is unreadable, or top-level `updated_at` is missing, unparseable, or
+    older than STATUS_MAX_AGE_S. A stale high number must not pin the optional-job pause on."""
     if scope != "personal":
         return None
+    doc = _read(usage_dir() / "status.json")
+    if not _status_fresh(doc.get("updated_at")):
+        return None
     try:
-        return float(_read(usage_dir() / "status.json")["claude"]["five_hour_billable_tokens"])
+        return float(doc["claude"]["five_hour_billable_tokens"])
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -236,6 +276,27 @@ def calls_tag(scope: str) -> str:
     return burn_tag(scope).replace("BURN", "BURN-CALLS", 1)
 
 
+def _top_surfaces(rows: list[dict], *, by_count: bool, exclude: tuple[str, ...] = ()) -> str:
+    """` Top: name N calls $X; ...` for the three busiest surfaces in one scope's window (rows already read).
+
+    Call-count rankings drop `exclude` prefixes, same as the call count. Spend rankings keep every
+    surface, because those calls still count toward spend. Ties break on the other figure, then the name."""
+    totals: dict[str, tuple[int, float]] = {}
+    for d in rows:
+        name = str(d.get("surface") or "")
+        if by_count and name.startswith(exclude):
+            continue
+        calls, spend = totals.get(name, (0, 0.0))
+        totals[name] = (calls + 1, spend + (d.get("cost_usd") or 0))
+
+    def order(item: tuple[str, tuple[int, float]]) -> tuple:
+        name, (calls, spend) = item
+        return ((-calls, -spend) if by_count else (-spend, -calls)) + (name,)
+
+    parts = [f"{name} {calls} calls ${spend:.2f}" for name, (calls, spend) in sorted(totals.items(), key=order)[:3]]
+    return (" Top: " + "; ".join(parts)) if parts else ""
+
+
 def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]:
     """Over-limit spending per account in the burn window, each with a stable alert key.
     A key names the condition; only the message carries the numbers."""
@@ -246,13 +307,16 @@ def burn_findings(cfg: Mapping[str, Any] | None = None) -> list[tuple[str, str]]
     exclude = tuple(s["count_exclude_surfaces"])
     out = []
     for scope in SCOPES:  # each account on its own: a burst on one says nothing about the other
-        calls, spend = call_rate(window, scope, exclude)
+        rows = _rows(CALLS, time.time() - window, scope)  # once: the totals and the top surfaces share it
+        calls, spend = _call_totals(rows, exclude)
         if calls > max_calls:
             out.append((f"burn:calls:{scope}", f"{calls_tag(scope)} the daemon made {calls} {scope}-account call(s) in "
-                                                f"{window // 60} min, over the limit of {max_calls} (warning only)"))
+                                                f"{window // 60} min, over the limit of {max_calls} (warning only)"
+                                                f"{_top_surfaces(rows, by_count=True, exclude=exclude)}"))
         if spend > max_spend:
             out.append((f"burn:spend:{scope}", f"{burn_tag(scope)} the daemon spent ${spend:.2f} on the {scope} account "
-                                                f"in {window // 60} min, over the limit of ${max_spend:.2f}"))
+                                                f"in {window // 60} min, over the limit of ${max_spend:.2f}"
+                                                f"{_top_surfaces(rows, by_count=False)}"))
     return out
 
 
