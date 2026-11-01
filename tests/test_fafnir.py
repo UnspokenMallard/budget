@@ -90,14 +90,41 @@ def test_limits():
     assert limits.detect('{"is_error":true,"api_error_status":429,"api_error_origin":"fi') is not None  # claude -p JSON
     weekly = limits.detect("You've hit your weekly limit · resets 12am (Europe/Ljubljana)")  # claude -p text
     assert weekly is not None and weekly.measured_reset
+    assert weekly.evidence == "You've hit your weekly limit · resets 12am (Europe/Ljubljana)" and weekly.window == "seven_day"
+    five_json = '{"duration_api_ms":0,"stop_reason":"stop_sequence","session_id":"x","total_cost_usd":0,"usage":{"input_tokens":0},"is_error":true,"api_error_status":429,"result":"You\'ve hit your 5-hour limit · resets 6:20pm (Europe/Ljubljana)","terminal_reason":"api_error"}'
+    five = limits.detect(five_json)  # one-line JSON: evidence is result, not the blob
+    assert five is not None and five.window == "five_hour"
+    assert five.evidence == "You've hit your 5-hour limit · resets 6:20pm (Europe/Ljubljana)"
     hit = limits.detect("Claude AI usage limit reached|1792240000", limits.CLAUDE)
-    assert hit is not None
-    limits.record(hit)
-    key, message, severity, _ = limits.alert(hit.provider)
-    assert key == "claude-usage-limit" and severity == "warn" and "deferred" in message
-    assert limits.blocked(limits.CLAUDE)[0] and (TMP / "state" / "claude-limit.json").exists()
-    limits.note_success(limits.CLAUDE)
-    assert limits.blocked(limits.CLAUDE) == (False, None)
+    assert hit is not None and hit.window is None
+    # called with cutoff now-5h, then now-7d; the nearer cutoff is the 5-hour count.
+    # patched before the epoch record too, so this test does not walk live transcripts
+    ceilings = limits.ceilings_path(limits.CLAUDE)
+    orig_billable = limits._billable_tokens_since
+    limits._billable_tokens_since = lambda cutoff, provider=limits.CLAUDE: 100 if time.time() - cutoff < 86400 else 9000
+    try:
+        limits.record(hit)
+        key, message, severity, _ = limits.alert(hit.provider)
+        assert key == "claude-usage-limit" and severity == "warn" and "deferred" in message
+        assert limits.blocked(limits.CLAUDE)[0] and (TMP / "state" / "claude-limit.json").exists()
+        limits.note_success(limits.CLAUDE)
+        assert limits.blocked(limits.CLAUDE) == (False, None)
+        ceilings.unlink(missing_ok=True)  # epoch hit names no window and ratchets both; start clean
+        limits.record(weekly)
+        got = json.loads(ceilings.read_text())
+        assert not got.get("five_hour_tokens_observed_max") and got["seven_day_tokens_observed_max"] == 9000
+        assert json.loads((TMP / "state" / "claude-limit.json").read_text())["window"] == "seven_day"
+        limits.record(five)
+        got = json.loads(ceilings.read_text())
+        assert got["five_hour_tokens_observed_max"] == 100 and got["seven_day_tokens_observed_max"] == 9000
+        assert got["last_hit_five_hour_tokens"] == 100 and got["last_hit_seven_day_tokens"] == 9000 and got["hit_count"] == 2
+        assert [(h["window"], h["five_hour_tokens"], h["seven_day_tokens"]) for h in got["hits"]] == [
+            ("seven_day", 100, 9000), ("five_hour", 100, 9000)]
+        assert json.loads((TMP / "state" / "claude-limit.json").read_text())["window"] == "five_hour"
+    finally:
+        limits._billable_tokens_since = orig_billable
+        limits.note_success(limits.CLAUDE)
+        ceilings.unlink(missing_ok=True)
 
 
 def test_billable_tokens_count_a_message_once():

@@ -136,6 +136,7 @@ class LimitHit:
     evidence: str
     resets_at: float | None
     raw: str
+    window: str | None = None
 
     @property
     def measured_reset(self) -> bool:
@@ -144,10 +145,23 @@ class LimitHit:
 
 
 def _evidence_line(text: str, match: re.Match) -> str:
-    """The line the marker appeared on, which is what a human needs to read."""
+    """The line the marker appeared on, which is what a human needs to read.
+
+    A one-line `claude -p --output-format json` hit is an object; when it
+    carries a non-empty string `result`, that message is the evidence.
+    """
     for line in text.splitlines():
         if match.group(0).lower() in line.lower():
-            return line.strip()[:200]
+            stripped = line.strip()
+            try:
+                obj = json.loads(stripped)
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict):
+                result = obj.get("result")
+                if isinstance(result, str) and result.strip():
+                    return result.strip()[:200]
+            return stripped[:200]
     return match.group(0)
 
 
@@ -221,6 +235,19 @@ def _parse_reset(text: str, now: float | None = None) -> float | None:
 
 _WORK_MARK = re.compile(r"claude\[work\]|PROVIDER LIMIT \(claude-work\)|CLAUDE_CONFIG_DIR=\S*claude-work")
 
+# Weekly first: a line that names both windows is a weekly hit.
+_SEVEN_DAY_WINDOW = re.compile(r"(?i)\bweekly\b|\b7[- ]day\b|\bseven[- ]day\b")
+_FIVE_HOUR_WINDOW = re.compile(r"(?i)\b5[- ]hour\b|\bfive[- ]hour\b|\bsession limit\b")
+
+
+def _hit_window(text: str) -> str | None:
+    """Which quota window the text names, or None when it names neither."""
+    if _SEVEN_DAY_WINDOW.search(text):
+        return "seven_day"
+    if _FIVE_HOUR_WINDOW.search(text):
+        return "five_hour"
+    return None
+
 
 def detect(text: str | None, provider: str | None = None) -> LimitHit | None:
     """Return a LimitHit if `text` is a provider saying it is out of quota.
@@ -238,11 +265,13 @@ def detect(text: str | None, provider: str | None = None) -> LimitHit | None:
         return None
     if provider is None:
         provider = CLAUDE_WORK if _WORK_MARK.search(text) else CLAUDE
+    evidence = _evidence_line(text, match)
     return LimitHit(
         provider=provider,
-        evidence=_evidence_line(text, match),
+        evidence=evidence,
         resets_at=_parse_reset(text),
         raw=text[-4000:],
+        window=_hit_window(evidence + "\n" + text),
     )
 
 
@@ -356,13 +385,17 @@ def _billable_tokens_since(cutoff: float, provider: str = CLAUDE) -> int:
     return total
 
 
-def _record_observed_ceiling(provider: str, now: float) -> None:
+def _record_observed_ceiling(provider: str, now: float, window: str | None = None) -> None:
     """A real limit hit is the one honest way to learn this account's actual
     5h/7d quota -- Anthropic doesn't publish it (checked 2026-09-03: their own
     docs confirm no exact number for Pro/Max plans). Never fabricate a budget;
     only ever record one from a real 'you are out of quota' event, and only
     ratchet it up on new evidence, since a partial session ending early would
     otherwise look like a lower cap than the true one.
+
+    `window` selects which maximum moves ("five_hour" or "seven_day"). None
+    still ratchets both. Each hit is appended to `hits` (last 50) so the token
+    counts at that hit survive after a later maximum replaces them.
     """
     if provider not in PROJECTS_DIRS_BY_PROVIDER:
         return
@@ -376,18 +409,39 @@ def _record_observed_ceiling(provider: str, now: float) -> None:
         existing = {}
 
     hit_count = int(existing.get("hit_count", 0)) + 1
+    at = datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds")
+    five_max = int(existing.get("five_hour_tokens_observed_max", 0))
+    seven_max = int(existing.get("seven_day_tokens_observed_max", 0))
+    if window == "five_hour":
+        five_max = max(five_h, five_max)
+    elif window == "seven_day":
+        seven_max = max(seven_d, seven_max)
+    else:
+        five_max = max(five_h, five_max)
+        seven_max = max(seven_d, seven_max)
+    prior = existing.get("hits")
+    hits = list(prior) if isinstance(prior, list) else []
+    hits.append({
+        "at": at,
+        "window": window,
+        "five_hour_tokens": five_h,
+        "seven_day_tokens": seven_d,
+    })
+    hits = hits[-50:]
     payload = {
-        "five_hour_tokens_observed_max": max(five_h, int(existing.get("five_hour_tokens_observed_max", 0))),
-        "seven_day_tokens_observed_max": max(seven_d, int(existing.get("seven_day_tokens_observed_max", 0))),
+        "five_hour_tokens_observed_max": five_max,
+        "seven_day_tokens_observed_max": seven_max,
         "last_hit_five_hour_tokens": five_h,
         "last_hit_seven_day_tokens": seven_d,
-        "last_hit_at": datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"),
-        "first_hit_at": existing.get("first_hit_at") or datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"),
+        "last_hit_at": at,
+        "first_hit_at": existing.get("first_hit_at") or at,
         "hit_count": hit_count,
+        "hits": hits,
         "note": (
             "Observed, not published - Anthropic exposes no exact Pro/Max token cap. "
-            "*_observed_max is a lower-bound estimate: the real cap is at least this "
-            "high, ratcheted up (never down) as more real hits provide better evidence. "
+            "*_observed_max is a per-window lower-bound estimate: the real cap is at least this "
+            "high, ratcheted up (never down) only by hits of that window "
+            "(a hit that names no window still ratchets both). "
             "Read by ~/.jarvis/scripts/update_status.py as a fallback budget "
             "when usage/status-config.json sets no explicit claude_5h_budget_tokens/"
             "claude_7d_budget_tokens."
@@ -413,7 +467,7 @@ def record(hit: LimitHit, cfg: Mapping[str, Any] | None = None) -> float:
     now = time.time()
     existing = _read(hit.provider) or {}
 
-    _record_observed_ceiling(hit.provider, now)
+    _record_observed_ceiling(hit.provider, now, hit.window)
 
     resets_at = hit.resets_at or (now + float(settings["default_wait_s"]))
     defers = int(existing.get("defers", 0)) + 1
@@ -422,6 +476,7 @@ def record(hit: LimitHit, cfg: Mapping[str, Any] | None = None) -> float:
         "hit_at": datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"),
         "provider": hit.provider,
         "evidence": hit.evidence,
+        "window": hit.window,
         "resets_at": resets_at,
         "resets_at_human": datetime.fromtimestamp(resets_at).astimezone().isoformat(timespec="seconds"),
         "reset_source": "parsed from provider output" if hit.measured_reset else "assumed default_wait_s, will re-probe",
